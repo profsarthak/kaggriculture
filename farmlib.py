@@ -93,6 +93,10 @@ class Config:
         # decisively (+11,561 vs +1,037) -- wool's pool is shallower still.
         self.pasture_target = 2
         self.pasture_animal = "COW"
+        # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
+        # surplus income wheat. Both trade wheat for flock size.
+        self.feed_ratio = 2.0
+        self.max_extra_wheat = 999
         self.__dict__.update(kw)
 
 
@@ -178,7 +182,13 @@ def plan_layout(farm, cfg, n_workers):
     # ~1.25 wheat tiles behind it; 2 gives margin. Buying feed instead is a
     # measured loss (6,053 vs 30,850) -- see docs/08-field-study.md -- but stays
     # switchable so the negative result is reproducible.
-    wheat_per_coop = 0 if cfg.buy_feed else 2
+    # Wheat tiles reserved behind each animal. A goose eats 1/day and wheat
+    # yields 0.8/tile/day, so 1.25 is the break-even and anything above is
+    # margin. Lowering it buys more animals from the same budget -- which the
+    # ladder data argues for: across 31 opponent appearances, animal count
+    # correlates +0.61 with final score (0 animals 31,492, 10+ animals 73,199)
+    # while wheat tiles correlate -0.43. See docs/12-goose-target.md.
+    wheat_per_coop = 0 if cfg.buy_feed else cfg.feed_ratio
 
     # Melon is honoured exactly. It is a small, strategically-chosen number
     # (A4's contested-pool equilibrium) costing ~10% of the budget, so there is
@@ -211,7 +221,9 @@ def plan_layout(farm, cfg, n_workers):
     # Feed tracks the flock we actually built, then spare budget buys income
     # wheat. Wheat is the filler because it is the only crop with unbounded
     # market depth (docs/01-market.md).
-    wheat = wheat_per_coop * (coops + pastures) + max(0, int(surplus // TILE_COST["WHEAT"]))
+    feed_tiles = int(math.ceil(wheat_per_coop * (coops + pastures)))
+    extra = max(0, int(surplus // TILE_COST["WHEAT"]))
+    wheat = feed_tiles + min(extra, cfg.max_extra_wheat)
 
     roles = {}
     quota = [("MELON", melon), ("PASTURE", pastures), ("COOP", coops), ("WHEAT", wheat)]
