@@ -69,7 +69,10 @@ class Config:
         self.labour_headroom = 0.58
         # Wheat a worker collects per shed trip. One trip should cover a day of
         # feeding for the animals that worker tends.
-        self.feed_carry = 6
+        # Measured +2,632 (20/20) against 6. Carrying less means more shed trips
+        # but each PICKUP is one turn regardless of quantity, and a worker
+        # loaded with feed it does not need is one that skipped a fetch it did.
+        self.feed_carry = 4
         # Priority points charged per step of walking when ranking tasks. 0
         # reproduces the old pure-priority ordering, which measured 71.5% of
         # worker turns spent moving.
@@ -97,6 +100,9 @@ class Config:
         # surplus income wheat. Both trade wheat for flock size.
         self.feed_ratio = 2.0
         self.max_extra_wheat = 999
+        # Take any pending work on the tile a worker already occupies before
+        # walking anywhere. Standing work costs no movement.
+        self.finish_tile = True
         self.__dict__.update(kw)
 
 
@@ -404,7 +410,7 @@ PREEMPT_ABOVE = 90
 
 
 def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
-           cfg_feed_carry=6, travel_weight=5.0, commitments=None):
+           cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -420,7 +426,14 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     in_shed = dict(shed_animals)
     commitments = commitments if commitments is not None else {}
 
-    task_map = {pos: (prio, op, need) for prio, pos, op, need in tasks}
+    # Several tasks can share a tile -- an animal wants FEED, HARVEST, CARE and
+    # COLLECT_FERTILIZER at once -- so keep the most valuable one per position.
+    # A plain dict comprehension keeps the *last* appended, which is the lowest
+    # priority of the four.
+    task_map = {}
+    for prio, pos, op, need in tasks:
+        if pos not in task_map or prio > task_map[pos][0]:
+            task_map[pos] = (prio, op, need)
 
     def held(i):
         return sum(animals[i].values())
@@ -483,6 +496,25 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             if best is None or d < best:
                 best = d
         return best if best is not None else 0
+
+    # --- phase 0: finish the tile you are standing on ------------------------
+    # An animal tile wants four actions (FEED, CARE, HARVEST,
+    # COLLECT_FERTILIZER) but only one can be taken per turn, so a worker that
+    # leaves after one pays the walk back. Measured: 1.40 actions per tile
+    # visit, with 967 of 1,385 visits ending at depth 1 and exactly one ever
+    # reaching depth 4 (analysis/travel.py).
+    #
+    # The cause is that urgent watering outranks CARE, so workers get pulled off
+    # mid-tile every turn. Standing work is free -- it costs no movement -- so
+    # taking it first is close to strictly better than walking somewhere for
+    # work of similar value.
+    if finish_tile:
+        for worker, upos in enumerate(units):
+            if actions[worker] is not None or upos in taken:
+                continue
+            entry = task_map.get(upos)
+            if entry and feasible(worker, entry[2]):
+                commit(worker, upos, entry[1], entry[2])
 
     # --- phase 1: urgent work, globally ranked and allowed to preempt --------
     # Starvation and weeding are irreversible, so these outrank route locality.
@@ -697,6 +729,7 @@ def make_agent(cfg=None):
             private["seeds"], shed_animals, cfg.feed_carry,
             cfg.travel_weight,
             state["commitments"] if cfg.route_commit else {},
+            cfg.finish_tile,
         )
 
         return {
