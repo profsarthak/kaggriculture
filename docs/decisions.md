@@ -152,3 +152,41 @@ answer, and it is the first thing Phase B has to solve.
 **Next.** A4: how the melon and fertilizer pools divide against a contesting opponent. The LP
 above drains them to near their caps with no competition, so this is where its numbers are
 most fragile.
+
+---
+
+## 2026-08-05 — A4: contested pools. Corrects A3; finds the largest single decision in the game.
+
+**What.** `analysis/pools.py` replays the interpreter's lockstep settlement for two simultaneous
+sellers, builds payoff matrices over commitment levels, and solves each as a zero-sum game.
+Payoffs are (my revenue − theirs), net of the uncontested egg alternative at $14.72/worker-turn.
+Detail in [04-pools.md](04-pools.md).
+
+**Biggest finding in Phase A: the melon first-mover premium is $12,790.** Eleven melon tiles
+each, harvesting simultaneously, pays $13,366 a side. The same eleven tiles selling into an
+untouched curve pays $26,156 against $459. Melon needs 10 days to first yield, so this is
+settled in the first day or two of the season and cannot be recovered afterwards. It is larger
+than any other single decision found in Phase A.
+
+Consequence for Phase B: melon goes in the ground immediately, and its harvest is sold on
+arrival rather than stockpiled. Holding for a better price is how you hand the curve away.
+
+**Corrects A3 — melon commitment 11 tiles → 8.** Eleven was the monopolist's answer. Against an
+equilibrium opponent it loses $1,447: over-committing floods the pool and the extra labour would
+have earned more on geese. Conceding entirely is far worse (−$20,702 against an 11-tile
+opponent), so this is not a pool to sit out.
+
+**Corrects A3 — fertilizer collection 20 animals → 8.** A3 set the animal count at 20 because
+20 × 24 days ≈ the 493-unit pool. Contested, the equilibrium collection is ~8 animals' worth.
+This does *not* mean keeping only 8 animals — eggs are unbounded and uncontested, so keep the
+fleet and throttle the `COLLECT_FERTILIZER` action instead. Past ~8 animals it earns less than
+the egg alternative and accelerates the flood.
+
+**Best-respond, don't play the equilibrium.** Opponent crop and `planted_day` are public
+(verified). The payoff matrix is a best-response table the agent should index by counting the
+opponent's melon tiles. 8 tiles is correct against everything except an opponent who concedes
+entirely, where 11 is better.
+
+**Phase A is complete.** Next: Phase B, the agent portfolio. First problem it has to solve is
+the one no analysis in Phase A can — bootstrapping from $3,000 to the ~$7,000 livestock
+position A3 assumes, while getting melon planted on day 0.
