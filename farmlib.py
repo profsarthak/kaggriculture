@@ -66,7 +66,7 @@ class Config:
         # travel as a flat multiplier and concluded it barely mattered; with a
         # real greedy assignment over scattered tiles it matters a great deal,
         # so this is swept empirically rather than derived.
-        self.labour_headroom = 0.65
+        self.labour_headroom = 0.58
         # Wheat a worker collects per shed trip. One trip should cover a day of
         # feeding for the animals that worker tends.
         self.feed_carry = 6
@@ -77,6 +77,10 @@ class Config:
         # Buy animal feed instead of growing it, trading wheat price escalation
         # for tiles and worker-turns. See plan_layout.
         self.buy_feed = False
+        # Carry routes across turns instead of re-deciding assignment globally
+        # every turn. Off reproduces the old per-turn greedy, kept so the gain
+        # stays measurable.
+        self.route_commit = True
         self.__dict__.update(kw)
 
 
@@ -325,8 +329,13 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
 
 # --- worker assignment ----------------------------------------------------
 
+# Tasks at or above this priority may interrupt a worker mid-route. Starvation
+# and weeding are irreversible; everything else can wait a turn.
+PREEMPT_ABOVE = 90
+
+
 def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
-           cfg_feed_carry=6, travel_weight=5.0):
+           cfg_feed_carry=6, travel_weight=5.0, commitments=None):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -340,16 +349,55 @@ def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
     wheat = list(carried_wheat)
     geese = list(carried_geese)
     in_shed = shed_geese
+    commitments = commitments if commitments is not None else {}
 
-    # Order tasks by value *net of the walk*, not by raw priority.
-    #
-    # Ranking by priority alone means the most urgent task in the world gets the
-    # nearest free worker, then the next, and so on -- which scatters everyone
-    # across the board. Measured: 71.5% of worker turns spent moving, 23.2%
-    # working (analysis/diagnose.py). Charging each task the distance to its
-    # closest available worker keeps work local without hard territory, which
-    # was tried (angular wedges) and made travel worse: a wedge is long and thin,
-    # so its owner is usually at the wrong end of it.
+    task_map = {pos: (prio, op, need) for prio, pos, op, need in tasks}
+
+    def feasible(i, need):
+        if actions[i] is not None:
+            return False
+        if need == "FEED" and wheat[i] <= 0:
+            return False           # no feed on this worker
+        if need == "GOOSE" and geese[i] <= 0:
+            return False           # not carrying an animal to place
+        if need == "FETCH_GOOSE" and geese[i] > 0:
+            return False           # already carrying one
+        if need == "FETCH_WHEAT" and wheat[i] > 0:
+            return False           # already stocked for today
+        return True
+
+    def commit(worker, pos, op, need):
+        """Move toward the tile, or act if standing on it. Returns True if acted."""
+        nonlocal in_shed
+        if need in CROP_INFO:
+            if seeds.get(need, 0) <= 0:
+                return None
+            seeds[need] -= 1
+        elif need == "FETCH_GOOSE":
+            if in_shed <= 0:
+                return None
+            in_shed -= 1
+
+        taken.add(pos)
+        ux, uy = units[worker]
+        move = step_toward(ux, uy, *pos)
+        if move:
+            actions[worker] = [move]
+            commitments[worker] = pos          # keep walking to it next turn
+            return False
+        actions[worker] = op
+        commitments.pop(worker, None)          # arrived; free to pick a new tile
+        # Only charge the consumable once the action actually fires.
+        if need == "FEED":
+            wheat[worker] -= 1
+        elif need == "GOOSE":
+            geese[worker] -= 1
+        elif need == "FETCH_GOOSE":
+            geese[worker] += 1
+        elif need == "FETCH_WHEAT":
+            wheat[worker] += cfg_feed_carry
+        return True
+
     def nearest_free(pos):
         best = None
         for i, upos in enumerate(units):
@@ -360,63 +408,56 @@ def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
                 best = d
         return best if best is not None else 0
 
-    tasks = sorted(
-        tasks,
+    # --- phase 1: urgent work, globally ranked and allowed to preempt --------
+    # Starvation and weeding are irreversible, so these outrank route locality.
+    urgent = sorted(
+        (t for t in tasks if t[0] >= PREEMPT_ABOVE),
         key=lambda t: -(t[0] - travel_weight * nearest_free(t[1])),
     )
-
-    for _priority, pos, op, need in tasks:
+    for _prio, pos, op, need in urgent:
         if pos in taken:
             continue
-
-        def feasible(i):
-            if actions[i] is not None:
-                return False
-            if need == "FEED" and wheat[i] <= 0:
-                return False       # no feed on this worker
-            if need == "GOOSE" and geese[i] <= 0:
-                return False       # not carrying an animal to place
-            if need == "FETCH_GOOSE" and geese[i] > 0:
-                return False       # already carrying one
-            if need == "FETCH_WHEAT" and wheat[i] > 0:
-                return False       # already stocked for today
-            return True
-
         best, best_d = None, None
         for i, upos in enumerate(units):
-            if not feasible(i):
+            if not feasible(i, need):
                 continue
             d = distance(upos, pos)
             if best_d is None or d < best_d:
                 best, best_d = i, d
-        if best is None:
+        if best is not None:
+            commit(best, pos, op, need)
+
+    # --- phase 2: honour routes already in progress -------------------------
+    # Without this, assignment is re-decided from scratch every turn and a
+    # worker that has walked three tiles toward something can be redirected
+    # before it arrives. Measured 65% of worker turns spent moving.
+    for worker in range(len(units)):
+        pos = commitments.get(worker)
+        if pos is None:
             continue
+        entry = task_map.get(pos)
+        if entry is None or pos in taken or not feasible(worker, entry[2]):
+            commitments.pop(worker, None)      # task is gone or now impossible
+            continue
+        commit(worker, pos, entry[1], entry[2])
 
-        if need in CROP_INFO:
-            if seeds.get(need, 0) <= 0:
+    # --- phase 3: idle workers pick up the nearest remaining work -----------
+    # Chosen by proximity to the worker rather than by global rank, so finishing
+    # one tile naturally chains into an adjacent one instead of sending the
+    # worker back across the farm.
+    for worker in range(len(units)):
+        if actions[worker] is not None:
+            continue
+        upos = units[worker]
+        best, best_score = None, None
+        for prio, pos, op, need in tasks:
+            if pos in taken or not feasible(worker, need):
                 continue
-            seeds[need] -= 1
-        elif need == "FETCH_GOOSE":
-            if in_shed <= 0:
-                continue
-            in_shed -= 1
-
-        taken.add(pos)
-        ux, uy = units[best]
-        move = step_toward(ux, uy, *pos)
-        if move:
-            actions[best] = [move]
-        else:
-            actions[best] = op
-            # Only charge the consumable once the action actually fires.
-            if need == "FEED":
-                wheat[best] -= 1
-            elif need == "GOOSE":
-                geese[best] -= 1
-            elif need == "FETCH_GOOSE":
-                geese[best] += 1
-            elif need == "FETCH_WHEAT":
-                wheat[best] += cfg_feed_carry
+            score = prio - travel_weight * distance(upos, pos)
+            if best_score is None or score > best_score:
+                best, best_score = (pos, op, need), score
+        if best:
+            commit(worker, *best)
 
     return [a if a else ["PASS"] for a in actions]
 
@@ -500,6 +541,9 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
 
 def make_agent(cfg=None):
     cfg = cfg or Config()
+    # Routes in progress, worker index -> target tile. Held across turns so a
+    # worker walking to a tile is not redirected before it arrives.
+    state = {"day": -1, "units": -1, "commitments": {}}
 
     def agent(obs):
         farm = obs["farms"][obs["player"]]
@@ -547,10 +591,20 @@ def make_agent(cfg=None):
 
         fert_budget = max(0, cfg.fertilizer_quota)
         tasks = gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget)
+        # Hands are re-hired every morning and land as market orders after the
+        # hour-0 actions, so worker indices only mean the same thing within a
+        # day and only once the day's hires have arrived. Drop routes whenever
+        # that identity could have changed.
+        if day != state["day"] or len(units) != state["units"]:
+            state["commitments"].clear()
+            state["day"] = day
+            state["units"] = len(units)
+
         assigned = assign(
             units, tasks, carried, carried_geese,
             private["seeds"], private["shed"].get("GOOSE", 0), cfg.feed_carry,
             cfg.travel_weight,
+            state["commitments"] if cfg.route_commit else {},
         )
 
         return {
