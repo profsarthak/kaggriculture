@@ -263,7 +263,10 @@ PRIORITY = {
     "WATER_URGENT": 95,
     "HARVEST": 80,
     "FETCH": 78,
-    "PLACE": 75,
+    # Measured +967 (20/20) at 90 rather than 75. A structure standing empty is
+    # a tile earning nothing and a bought animal idling in the shed, so placing
+    # it beats almost anything else on the board.
+    "PLACE": 90,
     # CARE banks +1 egg/day per goose for one action -- worth about as much as
     # the harvest it feeds. At its old priority (below PLANT) it fired 3 times
     # in an entire episode.
@@ -274,6 +277,15 @@ PRIORITY = {
     "DIG": 50,
     "FERT": 30,
 }
+
+
+def prio(key, cfg):
+    """Task priority, with a per-config override so the table can be swept.
+
+    The ordering was hand-set from "irreversible things first" reasoning and
+    never measured. `Config` exposes `p_<key.lower()>` for each entry.
+    """
+    return getattr(cfg, "p_" + key.lower(), None) or PRIORITY[key]
 
 
 
@@ -329,7 +341,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
         for pos in slots[:fetchable]:
             if pos in {t[1] for t in tasks}:
                 continue
-            tasks.append((PRIORITY["FETCH"], pos, ["PICKUP", animal, 1], f"FETCH_{animal}"))
+            tasks.append((prio("FETCH", cfg), pos, ["PICKUP", animal, 1], f"FETCH_{animal}"))
 
     # Same problem for feed, and it is the dangerous one: inventories empty into
     # the shed overnight, so every worker starts each day with no wheat and a
@@ -345,7 +357,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
     if animals and shed.get("WHEAT", 0) > 0:
         for pos in sorted(shed_tiles(size)):
             tasks.append(
-                (PRIORITY["FETCH_WHEAT"], pos, ["PICKUP", "WHEAT", cfg.feed_carry], "FETCH_WHEAT")
+                (prio("FETCH_WHEAT", cfg), pos, ["PICKUP", "WHEAT", cfg.feed_carry], "FETCH_WHEAT")
             )
 
     for (x, y), role in roles.items():
@@ -356,12 +368,12 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
                 # Only build what we can actually stock. An empty structure is a
                 # wasted build action and a tile taken out of production.
                 if build_budget > 0:
-                    tasks.append((PRIORITY["BUILD"], (x, y), [f"BUILD_{role}"], None))
+                    tasks.append((prio("BUILD", cfg), (x, y), [f"BUILD_{role}"], None))
                     build_budget -= 1
             else:
                 crop = planting_choice(role, day, cfg)
                 if seeds.get(crop, 0) > 0:
-                    tasks.append((PRIORITY["PLANT"], (x, y), ["PLANT", crop], crop))
+                    tasks.append((prio("PLANT", cfg), (x, y), ["PLANT", crop], crop))
             continue
 
         if not isinstance(tile, dict):
@@ -370,7 +382,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
         kind = tile.get("kind")
 
         if kind == "WEED":
-            tasks.append((PRIORITY["DIG"], (x, y), ["DIG"], None))
+            tasks.append((prio("DIG", cfg), (x, y), ["DIG"], None))
             continue
 
         if kind == "PLANT":
@@ -378,7 +390,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
             info = CROP_INFO.get(crop, CROP_INFO["WHEAT"])
             age = day - tile["planted_day"]
             if age >= info["harvest_day"] and tile.get("yield_units", 0) > 0:
-                tasks.append((PRIORITY["HARVEST"], (x, y), ["HARVEST"], None))
+                tasks.append((prio("HARVEST", cfg), (x, y), ["HARVEST"], None))
             elif not tile.get("watered_today"):
                 # Two consecutive misses turns it into a weed.
                 urgent = tile.get("consecutive_unwatered", 0) >= 1
@@ -386,7 +398,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
                 useful = info["ongoing"] or lo <= age <= hi
                 if urgent or useful:
                     key = "WATER_URGENT" if urgent else "WATER_BONUS"
-                    tasks.append((PRIORITY[key], (x, y), ["WATER"], None))
+                    tasks.append((prio(key, cfg), (x, y), ["WATER"], None))
             continue
 
         if kind in ("COOP", "PASTURE"):
@@ -395,18 +407,18 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
                 # Only worth walking here if some worker is actually carrying
                 # the right animal; `assign` rations that against inventories.
                 want = animal_for(kind, cfg)
-                tasks.append((PRIORITY["PLACE"], (x, y), ["PLACE", want, 1], f"PLACE_{want}"))
+                tasks.append((prio("PLACE", cfg), (x, y), ["PLACE", want, 1], f"PLACE_{want}"))
                 continue
             if not tile.get("fed_today"):
-                tasks.append((PRIORITY["FEED"], (x, y), ["FEED"], "FEED"))
+                tasks.append((prio("FEED", cfg), (x, y), ["FEED"], "FEED"))
             if tile.get("yield_units", 0) > 0:
-                tasks.append((PRIORITY["HARVEST"], (x, y), ["HARVEST"], None))
+                tasks.append((prio("HARVEST", cfg), (x, y), ["HARVEST"], None))
             if not tile.get("cared_today"):
                 # CARE banks a bonus paid on the next yield, and the bank
                 # accrued during growth pays out in a lump (docs/02-labour.md).
-                tasks.append((PRIORITY["CARE"], (x, y), ["CARE"], None))
+                tasks.append((prio("CARE", cfg), (x, y), ["CARE"], None))
             if tile.get("fertilizer_available") and fert_budget > 0:
-                tasks.append((PRIORITY["FERT"], (x, y), ["COLLECT_FERTILIZER"], "FERT"))
+                tasks.append((prio("FERT", cfg), (x, y), ["COLLECT_FERTILIZER"], "FERT"))
 
     tasks.sort(key=lambda t: -t[0])
     return tasks
