@@ -142,6 +142,15 @@ class Config:
         self.season_days = 30
         # Days a new quadrant needs to repay itself before the season ends.
         self.land_lead = 8
+        # Give animal structures the tiles nearest the shed, ahead of melon.
+        # Rejected: -14,481, 0/12. The intuition was that animals want the good
+        # ground most, needing 3-4 actions a day plus feed carried from the
+        # shed, where melon needs one action per visit. Wrong -- melon is
+        # time-critical in a way animals are not. Its first-mover premium is
+        # $12,790 (docs/04-pools.md) and it only cycles twice a season, so days
+        # lost getting to it are unrecoverable, whereas a structure is placed
+        # once and then tended wherever it stands.
+        self.animals_near_shed = False
         self.__dict__.update(kw)
         if isinstance(self.sale_cap, (int, float)):
             # Convenience for sweeping: a scalar caps every shallow product.
@@ -273,8 +282,16 @@ def plan_layout(farm, cfg, n_workers):
     extra = max(0, int(surplus // TILE_COST["WHEAT"]))
     wheat = feed_tiles + min(extra, cfg.max_extra_wheat)
 
+    # Tiles are handed out nearest-the-shed first, so this order decides who
+    # gets the good ground. Animals want it most: a structure needs 3-4 actions
+    # a day *and* its feed carried from the shed, where a melon tile needs one
+    # action per visit and no logistics.
     roles = {}
-    quota = [("MELON", melon), ("PASTURE", pastures), ("COOP", coops), ("WHEAT", wheat)]
+    quota = [
+        ("PASTURE", pastures), ("COOP", coops), ("MELON", melon), ("WHEAT", wheat),
+    ] if cfg.animals_near_shed else [
+        ("MELON", melon), ("PASTURE", pastures), ("COOP", coops), ("WHEAT", wheat),
+    ]
     it = iter(tiles)
     for role, count in quota:
         for _ in range(max(0, count)):
