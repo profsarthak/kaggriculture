@@ -81,6 +81,18 @@ class Config:
         # every turn. Off reproduces the old per-turn greedy, kept so the gain
         # stays measurable.
         self.route_commit = True
+        # Plant carrot on general crop tiles before this day, then wheat. 0
+        # disables the opening. See planting_choice.
+        # Rejected: carrot loses monotonically (-3,865 at 3 days, -13,963 at
+        # 12). Kept switchable so the negative result stays reproducible.
+        self.carrot_until = 0
+        # Pasture tiles, stocked with cows or sheep. Measured +11,673 (16/16)
+        # against no pastures at all. Two is the peak: milk is worth $160 base
+        # against eggs at $50 and the field barely contests it, but the pool is
+        # only 76 units deep so a third cow starts flooding it. Cows beat sheep
+        # decisively (+11,561 vs +1,037) -- wool's pool is shallower still.
+        self.pasture_target = 2
+        self.pasture_animal = "COW"
         self.__dict__.update(kw)
 
 
@@ -116,7 +128,12 @@ def distance(a, b):
 
 # Daily action cost per active tile, from docs/02-labour.md. Used to size the
 # working area against the labour budget.
-TILE_COST = {"MELON": 0.91, "WHEAT": 1.20, "COOP": 4.20}
+TILE_COST = {"MELON": 0.91, "WHEAT": 1.20, "COOP": 4.20, "PASTURE": 3.70}
+
+
+def animal_for(structure, cfg):
+    """Which animal belongs on a structure. Coops are geese by definition."""
+    return "GOOSE" if structure == "COOP" else cfg.pasture_animal
 
 
 def plan_layout(farm, cfg, n_workers):
@@ -173,6 +190,14 @@ def plan_layout(farm, cfg, n_workers):
     melon = max(0, min(cfg.melon_tiles, len(tiles)))
     remaining = max(0.0, budget - melon * TILE_COST["MELON"])
 
+    # Pastures are claimed before coops. Milk and wool have far higher base
+    # prices than eggs and the field averages only 3.4 animals, so those pools
+    # are barely contested -- but they are shallow (76 and 59 units) so this is
+    # a small fixed allocation, not a scaling one (docs/01-market.md).
+    per_pasture = TILE_COST["PASTURE"] + wheat_per_coop * TILE_COST["WHEAT"]
+    pastures = max(0, min(cfg.pasture_target, int(remaining // per_pasture) if per_pasture else 0))
+    remaining = max(0.0, remaining - pastures * per_pasture)
+
     per_coop = TILE_COST["COOP"] + wheat_per_coop * TILE_COST["WHEAT"]
     coop_demand = cfg.goose_target * per_coop
 
@@ -186,10 +211,10 @@ def plan_layout(farm, cfg, n_workers):
     # Feed tracks the flock we actually built, then spare budget buys income
     # wheat. Wheat is the filler because it is the only crop with unbounded
     # market depth (docs/01-market.md).
-    wheat = wheat_per_coop * coops + max(0, int(surplus // TILE_COST["WHEAT"]))
+    wheat = wheat_per_coop * (coops + pastures) + max(0, int(surplus // TILE_COST["WHEAT"]))
 
     roles = {}
-    quota = [("MELON", melon), ("COOP", coops), ("WHEAT", wheat)]
+    quota = [("MELON", melon), ("PASTURE", pastures), ("COOP", coops), ("WHEAT", wheat)]
     it = iter(tiles)
     for role, count in quota:
         for _ in range(max(0, count)):
@@ -225,6 +250,33 @@ PRIORITY = {
 
 
 
+def planting_choice(role, day, cfg):
+    """What a general-purpose crop tile should plant today.
+
+    Carrot is the better opening: it harvests on day 3 against wheat's day 4 and
+    pays 3 units at a $35 base against 4 at $25, so it turns the starting bank
+    into cash faster -- which matters because the whole build-out is gated on
+    early capital. The strongest opponent we have faced opened on 17 carrot
+    tiles (docs/08-field-study.md).
+
+    It cannot replace wheat, though: animals eat wheat, and carrot's market pool
+    is only ~842 units against wheat's unbounded depth (docs/01-market.md). So
+    it is an opening, not a crop plan -- these tiles revert to wheat once the
+    flock needs feeding.
+    """
+    # MELON tiles are a fixed strategic commitment (A4's contested-pool
+    # equilibrium) and are never repurposed.
+    if role == "MELON":
+        return "MELON"
+    # Everything else is the general-purpose crop role, which is *named*
+    # "WHEAT". Role names and crop names share a namespace, so this cannot be
+    # resolved with `role in CROP_INFO` -- that test passes for the general
+    # role and silently makes the carrot branch unreachable.
+    if day < cfg.carrot_until:
+        return "CARROT"
+    return "WHEAT"
+
+
 def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
     """One task per tile that wants attention, with a priority."""
     tasks = []
@@ -236,16 +288,20 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
     # PLACE takes the animal from the acting worker's *inventory*, not from the
     # shed, so a purchased goose sits in storage forever unless someone walks to
     # the shed and picks it up. Emit explicit fetch tasks for that.
-    empty_coops = sum(
-        1
-        for (x, y), role in roles.items()
-        if isinstance(tiles[y][x], dict)
-        and tiles[y][x].get("kind") in ("COOP", "PASTURE")
-        and tiles[y][x].get("animal") is None
-    )
-    fetchable = min(empty_coops, shed.get("GOOSE", 0))
-    for pos in sorted(shed_tiles(size))[:fetchable]:
-        tasks.append((PRIORITY["FETCH"], pos, ["PICKUP", "GOOSE", 1], "FETCH_GOOSE"))
+    empty = {"COOP": 0, "PASTURE": 0}
+    for (x, y) in roles:
+        tile = tiles[y][x]
+        if isinstance(tile, dict) and tile.get("kind") in empty and tile.get("animal") is None:
+            empty[tile["kind"]] += 1
+
+    slots = sorted(shed_tiles(size))
+    for structure, count in empty.items():
+        animal = animal_for(structure, cfg)
+        fetchable = min(count, shed.get(animal, 0))
+        for pos in slots[:fetchable]:
+            if pos in {t[1] for t in tasks}:
+                continue
+            tasks.append((PRIORITY["FETCH"], pos, ["PICKUP", animal, 1], f"FETCH_{animal}"))
 
     # Same problem for feed, and it is the dangerous one: inventories empty into
     # the shed overnight, so every worker starts each day with no wheat and a
@@ -268,14 +324,14 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
         tile = tiles[y][x]
 
         if tile is None:
-            if role == "COOP":
-                # Only build what we can actually stock. An empty coop is a
+            if role in ("COOP", "PASTURE"):
+                # Only build what we can actually stock. An empty structure is a
                 # wasted build action and a tile taken out of production.
                 if build_budget > 0:
-                    tasks.append((PRIORITY["BUILD"], (x, y), ["BUILD_COOP"], None))
+                    tasks.append((PRIORITY["BUILD"], (x, y), [f"BUILD_{role}"], None))
                     build_budget -= 1
             else:
-                crop = role if role in CROP_INFO else "WHEAT"
+                crop = planting_choice(role, day, cfg)
                 if seeds.get(crop, 0) > 0:
                     tasks.append((PRIORITY["PLANT"], (x, y), ["PLANT", crop], crop))
             continue
@@ -308,9 +364,10 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
         if kind in ("COOP", "PASTURE"):
             animal = tile.get("animal")
             if animal is None:
-                # Only worth walking here if some worker is actually carrying a
-                # goose; `assign` rations that against the workers' inventories.
-                tasks.append((PRIORITY["PLACE"], (x, y), ["PLACE", "GOOSE", 1], "GOOSE"))
+                # Only worth walking here if some worker is actually carrying
+                # the right animal; `assign` rations that against inventories.
+                want = animal_for(kind, cfg)
+                tasks.append((PRIORITY["PLACE"], (x, y), ["PLACE", want, 1], f"PLACE_{want}"))
                 continue
             if not tile.get("fed_today"):
                 tasks.append((PRIORITY["FEED"], (x, y), ["FEED"], "FEED"))
@@ -334,7 +391,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
 PREEMPT_ABOVE = 90
 
 
-def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
+def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
            cfg_feed_carry=6, travel_weight=5.0, commitments=None):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
@@ -347,36 +404,41 @@ def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
     taken = set()
     seeds = dict(seeds)
     wheat = list(carried_wheat)
-    geese = list(carried_geese)
-    in_shed = shed_geese
+    animals = [dict(a) for a in carried_animals]
+    in_shed = dict(shed_animals)
     commitments = commitments if commitments is not None else {}
 
     task_map = {pos: (prio, op, need) for prio, pos, op, need in tasks}
+
+    def held(i):
+        return sum(animals[i].values())
 
     def feasible(i, need):
         if actions[i] is not None:
             return False
         if need == "FEED" and wheat[i] <= 0:
             return False           # no feed on this worker
-        if need == "GOOSE" and geese[i] <= 0:
-            return False           # not carrying an animal to place
-        if need == "FETCH_GOOSE" and geese[i] > 0:
-            return False           # already carrying one
+        if need and need.startswith("PLACE_"):
+            if animals[i].get(need[6:], 0) <= 0:
+                return False       # not carrying this animal
+        if need and need.startswith("FETCH_") and need != "FETCH_WHEAT":
+            if held(i) > 0:
+                return False       # already carrying an animal
         if need == "FETCH_WHEAT" and wheat[i] > 0:
             return False           # already stocked for today
         return True
 
     def commit(worker, pos, op, need):
         """Move toward the tile, or act if standing on it. Returns True if acted."""
-        nonlocal in_shed
         if need in CROP_INFO:
             if seeds.get(need, 0) <= 0:
                 return None
             seeds[need] -= 1
-        elif need == "FETCH_GOOSE":
-            if in_shed <= 0:
+        elif need and need.startswith("FETCH_") and need != "FETCH_WHEAT":
+            animal = need[6:]
+            if in_shed.get(animal, 0) <= 0:
                 return None
-            in_shed -= 1
+            in_shed[animal] -= 1
 
         taken.add(pos)
         ux, uy = units[worker]
@@ -390,12 +452,14 @@ def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
         # Only charge the consumable once the action actually fires.
         if need == "FEED":
             wheat[worker] -= 1
-        elif need == "GOOSE":
-            geese[worker] -= 1
-        elif need == "FETCH_GOOSE":
-            geese[worker] += 1
         elif need == "FETCH_WHEAT":
             wheat[worker] += cfg_feed_carry
+        elif need and need.startswith("PLACE_"):
+            animal = need[6:]
+            animals[worker][animal] = animals[worker].get(animal, 0) - 1
+        elif need and need.startswith("FETCH_"):
+            animal = need[6:]
+            animals[worker][animal] = animals[worker].get(animal, 0) + 1
         return True
 
     def nearest_free(pos):
@@ -482,9 +546,15 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     if cfg.dump_melon and shed.get("MELON", 0) > 0:
         orders.append(["SELL", "MELON", shed["MELON"]])
 
-    # Eggs and wheat are unbounded sinks (docs/01-market.md) -- no reason to
-    # meter them.
-    for item in ("EGG", "FERTILIZER", "MILK", "WOOL"):
+    # Sell everything else that lands. This list is derived rather than
+    # hardcoded: an unlisted product silently accumulates until the 100-item
+    # shed cap, at which point *all* overflow is discarded -- so forgetting one
+    # does not cost that product's revenue, it costs the whole shed. Adding
+    # carrot as an opening crop hit exactly that, and the failure looked like a
+    # flat -4,175 regardless of how much carrot was planted.
+    for item in shed:
+        if item in ("WHEAT", "MELON") or item in ANIMAL_INFO:
+            continue                      # handled separately / not sellable
         if shed.get(item, 0) > 0:
             orders.append(["SELL", item, shed[item]])
 
@@ -502,30 +572,36 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     # two cycles.
     wanted = {}
     for role in roles.values():
-        crop = role if role in CROP_INFO else None
-        if crop:
-            wanted[crop] = wanted.get(crop, 0) + 1
-    for crop in ("MELON", "WHEAT"):
-        need = min(wanted.get(crop, 0), 12) - private["seeds"].get(crop, 0)
+        crop = planting_choice(role, obs["day"], cfg)
+        wanted[crop] = wanted.get(crop, 0) + 1
+    for crop in ("MELON", "CARROT", "WHEAT"):
+        if crop not in wanted:
+            continue
+        need = min(wanted[crop], 12) - private["seeds"].get(crop, 0)
         cost = CROP_INFO[crop]["seed"]
         if need > 0 and money > cfg.cash_floor + need * cost:
             orders.append(["BUY_SEED", crop, need])
 
-    # Livestock, once the engine can afford it.
-    coops_empty = sum(
-        1
-        for (x, y), role in roles.items()
-        if role == "COOP"
-        and isinstance(farm["tiles"][y][x], dict)
-        and farm["tiles"][y][x].get("animal") is None
-    )
-    want_geese = min(coops_empty, cfg.goose_target - animals_alive)
-    held = shed.get("GOOSE", 0)
-    if want_geese > held and money > 1500:
-        affordable = int((money - 1200) // ANIMAL_INFO["GOOSE"]["cost"])
-        n = min(want_geese - held, affordable)
-        if n > 0:
-            orders.append(["BUY_ANIMAL", "GOOSE", n])
+    # Livestock, once the engine can afford it. Pastures are bought first: milk
+    # and wool are worth far more per unit than eggs and the field barely
+    # contests them, but the pools are shallow so the allocation stays small.
+    for structure in ("PASTURE", "COOP"):
+        animal = animal_for(structure, cfg)
+        vacant = sum(
+            1
+            for (x, y), role in roles.items()
+            if role == structure
+            and isinstance(farm["tiles"][y][x], dict)
+            and farm["tiles"][y][x].get("kind") == structure
+            and farm["tiles"][y][x].get("animal") is None
+        )
+        held = shed.get(animal, 0)
+        if vacant > held and money > 1500:
+            cost = ANIMAL_INFO[animal]["cost"]
+            affordable = int((money - 1200) // cost)
+            n = min(vacant - held, affordable)
+            if n > 0:
+                orders.append(["BUY_ANIMAL", animal, n])
 
     # Expansion. Two quadrants only (docs/03-allocation.md).
     bought = len(farm["unlocked_quadrants"]) - 1
@@ -583,11 +659,15 @@ def make_agent(cfg=None):
         # pickup silently no-ops its FEED and the animal starves in two days.
         # This cost me a whole verification run (docs/02-labour.md).
         carried = [inv.get("WHEAT", 0) for inv in inventories]
-        carried_geese = [inv.get("GOOSE", 0) for inv in inventories]
+        carried_animals = [
+            {a: inv.get(a, 0) for a in ANIMAL_INFO if inv.get(a, 0)}
+            for inv in inventories
+        ]
         while len(carried) < len(units):
             carried.append(0)
-        while len(carried_geese) < len(units):
-            carried_geese.append(0)
+        while len(carried_animals) < len(units):
+            carried_animals.append({})
+        shed_animals = {a: private["shed"].get(a, 0) for a in ANIMAL_INFO}
 
         fert_budget = max(0, cfg.fertilizer_quota)
         tasks = gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget)
@@ -601,8 +681,8 @@ def make_agent(cfg=None):
             state["units"] = len(units)
 
         assigned = assign(
-            units, tasks, carried, carried_geese,
-            private["seeds"], private["shed"].get("GOOSE", 0), cfg.feed_carry,
+            units, tasks, carried, carried_animals,
+            private["seeds"], shed_animals, cfg.feed_carry,
             cfg.travel_weight,
             state["commitments"] if cfg.route_commit else {},
         )
