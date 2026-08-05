@@ -49,6 +49,22 @@ difference needs a few hundred episodes, which at observed accrual is days rathe
 Offline panel testing resolves a 500-coin effect in ~1 minute. **The panel is the instrument for
 iteration; the ladder is for occasional calibration**, not for adjudicating individual changes.
 
+## What the panel cannot do
+
+Every panel member runs *our* engine with a different `Config`. So the panel measures
+robustness across strategies, but it cannot construct an opponent that plays **better than our
+best configuration** — any such opponent would, by definition, be a config we should adopt.
+
+That matters because the field is currently better than us: across the v4/v5 episodes we
+average 38,322 against the field's 50,411. The strongest opponent seen, `PromptEngineer48`,
+scored 79,254 with 29 melon tiles and 19 animals — a build our engine cannot service
+(`docs/08-field-study.md`), so parameterising a panel member that way produces a weak opponent
+rather than a strong one.
+
+**The ladder is therefore the only source of information about genuinely stronger play**, and
+it is slow and noisy. The practical split: panel for iteration, ladder for periodic calibration,
+and no expectation that offline margins convert one-for-one into rating.
+
 ## Standing instruction
 
 Adopt on the **panel worst case**, not the mirror margin. A change that helps against ourselves
