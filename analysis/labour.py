@@ -111,6 +111,11 @@ def ongoing_crop_profile(name):
     }
 
 
+# A worker can tend roughly this many animals in a day before travel and the
+# 24-turn budget bite. Used only to amortise the one morning feed pickup.
+ANIMALS_PER_WORKER = 5
+
+
 def animal_profile(name, care=True):
     """Steady-state daily cost and output for one animal.
 
@@ -119,6 +124,11 @@ def animal_profile(name, care=True):
     bank never exceeds 1 and CARE is worth exactly +1 egg/day for +1 action/day.
     For slower animals the bank accumulates across the interval, so CARE is
     worth more per action.
+
+    Verified empirically in analysis/verify.py. Note that the *cumulative* total
+    exceeds this rate: the pre-production growth days bank a care bonus that is
+    paid out in one lump on the first yield (capped at max_held). That startup
+    bonus is real but is not a rate, so it is excluded here.
     """
     a = ANIMALS[name]
     interval = max(1, a["interval"])
@@ -128,8 +138,20 @@ def animal_profile(name, care=True):
     per_interval = min(per_interval, a["max_held"])
 
     # Daily actions: FEED always; CARE optionally; HARVEST once per interval;
-    # COLLECT_FERTILIZER once a day (every animal emits 1/day, free).
-    daily_actions = 1 + (1 if care else 0) + (1 / interval) + 1
+    # COLLECT_FERTILIZER once a day (every animal emits 1/day, free); plus a
+    # share of one morning PICKUP for feed.
+    #
+    # That pickup is not optional. Every worker's inventory is emptied into the
+    # shed at the end-of-day refresh, so feed does not survive the night -- a
+    # worker that skips it silently no-ops its FEED and the animal starves after
+    # two days. Caught by verify.py; the first version of this model missed it.
+    daily_actions = (
+        1                                   # FEED
+        + (1 if care else 0)                # CARE
+        + (1 / interval)                    # HARVEST, once per production
+        + 1                                 # COLLECT_FERTILIZER
+        + (1 / ANIMALS_PER_WORKER)          # share of the morning feed pickup
+    )
 
     return {
         "name": name,

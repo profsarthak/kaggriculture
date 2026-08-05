@@ -16,9 +16,15 @@ with pool depths imported from A1. Yields cross-check against the README's publi
 
 | animal | prod/day | act/day | $/day | $/action | animal-days to exhaust pool |
 |---|---:|---:|---:|---:|---:|
-| GOOSE | 2.00 | 4.00 | 102.40 | 25.60 | **∞** |
-| COW | 1.50 | 3.50 | 155.15 | 44.33 | 51 |
-| SHEEP | 1.33 | 3.33 | 212.40 | 63.72 | 44 |
+| GOOSE | 2.00 | 4.20 | 102.40 | 24.38 | **∞** |
+| COW | 1.50 | 3.70 | 155.15 | 41.93 | 51 |
+| SHEEP | 1.33 | 3.53 | 212.40 | 60.11 | 44 |
+
+Animal action counts include a share of one morning `PICKUP` for feed. **That pickup is not
+optional and the first version of this model omitted it.** Every worker's inventory is emptied
+into the shed at the end-of-day refresh, so feed does not survive the night; a worker that
+skips the morning collection silently no-ops its `FEED`, and the animal starves after two days.
+This was caught by `analysis/verify.py`, not by reading the rules — the failure mode is silent.
 
 The watering schedule assumed is the cheapest one that survives: water the planting day
 (a fresh seed starts at `consecutive_unwatered = 1`), coast on alternate days until the bonus
@@ -36,10 +42,10 @@ Only two rows have infinite capacity: **wheat and geese.** Everything else is a 
 
 | hands | worker-turns/day | hire cost/day | geese supported by labour | geese fitting in 4 quadrants |
 |---:|---:|---:|---:|---:|
-| 0 | 24 | $0 | 4.4 | 44.4 |
-| 4 | 120 | $7 | 21.8 | 44.4 |
-| 8 | 216 | $54 | 39.3 | 44.4 |
-| 12 | 312 | $376 | 56.7 | 44.4 |
+| 0 | 24 | $0 | 4.2 | 44.4 |
+| 4 | 120 | $7 | 21.1 | 44.4 |
+| 8 | 216 | $54 | 37.9 | 44.4 |
+| 12 | 312 | $376 | 54.7 | 44.4 |
 
 (Geese are the yardstick because they're the densest sustainable use of a worker turn. Each is
 charged its own daily actions plus the labour to grow the wheat it eats.)
@@ -66,6 +72,29 @@ labour-saturated on a quarter of the board it could own.
    drained. Whether they're worth *contesting* is A4.
 4. **Buy land aggressively.** $7,000 total for 4× the ceiling, against a baseline that
    currently ends games with ~$6,700 unspent capacity.
+
+## Verification
+
+`python -m analysis.verify` drives real episodes with scripted agents and checks the model
+against what the interpreter actually does. 7/7 passing:
+
+| check | result |
+|---|---|
+| Wheat yield, water days [0,2,3,4], harvest day 4 | 4 units — matches |
+| Carrot yield, water days [0,2,3], harvest day 3 | 3 units — matches |
+| Melon yield, water days [0,2,4,6..10], harvest day 10 | 6 units — matches |
+| Goose steady state, fed + cared | 2.0 eggs/day — matches |
+| Goose fertilizer | 1/day — matches |
+| Buy-then-sell round trip nets zero | $3,000 → $3,000 — matches |
+| Melon sell curve monotone | holds |
+
+The goose check deliberately *differences two run lengths* rather than checking a cumulative
+total, because totals include a startup effect the model doesn't claim: `CARE` banks +1 per
+fed-and-cared day and pays the whole bank out on the next scheduled production, so the
+pre-production growth days dump a lump on the first yield (capped at `max_held`). Measured at
++1 egg for a goose. Larger for slower animals, where the bank accrues across a longer interval
+— **worth exploiting in Phase B**: care an animal through its growth period and the first
+harvest pays a bonus.
 
 ## Caveat carried forward
 

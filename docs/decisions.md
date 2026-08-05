@@ -78,3 +78,33 @@ $/action figures above include fertilizer and should be re-read without it for l
 
 **Next.** A3 (allocation LP). First thing it must settle: grow feed wheat or buy it. Buying
 frees ~1.25 tiles per goose but drains inventory along wheat's steep below-`I0` `sqrt` curve.
+
+---
+
+## 2026-08-05 — Verification of A1 and A2; one model error found and fixed
+
+**What.** `analysis/verify.py` drives real episodes with scripted agents and checks predictions
+against the interpreter. A1's gate had only compared three published price points; A2 had never
+been run at all. 7/7 checks now pass.
+
+**Model error found — A2 undercounted animal labour.** Every worker's inventory is emptied into
+the shed at the end-of-day refresh, so feed does not survive the night. A worker that skips the
+morning `PICKUP` silently no-ops its `FEED`, and the animal starves after two unfed days. My
+first goose script did exactly that and the animal escaped on day 2, which is how this surfaced
+— the failure is completely silent in the observation.
+
+Animal daily actions now include a share of one morning feed pickup (amortised over
+`ANIMALS_PER_WORKER = 5`). Effect: goose $/action 25.60 → 24.38, cow 44.33 → 41.93, sheep
+63.72 → 60.11.
+
+**Conclusion unchanged.** The labour/land crossover moves from ~9–10 hands to ~10, so land still
+binds and the A2 headline stands.
+
+**Finding worth exploiting in Phase B.** `CARE` banks +1 per fed-and-cared day and pays the
+whole bank out on the *next* scheduled production, capped at `max_held`. Caring for an animal
+through its pre-production growth days therefore front-loads a bonus onto the first harvest:
++1 egg for a goose, and more for cows and sheep whose longer intervals accrue a bigger bank.
+
+**Verified correct as modelled:** wheat 4 units, carrot 3, melon 6 under the cheapest surviving
+watering schedule; goose steady state exactly 2 eggs/day fed+cared; 1 free fertilizer/animal/day;
+buy-then-sell round trip nets exactly zero.
