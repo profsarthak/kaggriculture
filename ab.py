@@ -112,6 +112,40 @@ def report(margins, seat_effects, wins, games, label):
     return mean, sd
 
 
+# A panel of sparring partners, not just ourselves.
+#
+# Self-play rewards changes that beat *us*, which is measurably not the same as
+# beating the field: the cows build won its self-play A/B by +11,673 and then
+# finished 18 rating points BELOW the build it replaced. A change that only
+# helps against a mirror of itself is not worth shipping, so a variant is now
+# scored against several genuinely different strategies and judged on the worst
+# case as well as the average.
+#
+# The field-like entries are built from what replays actually show opponents
+# doing (docs/12-goose-target.md): ~10 melon tiles, few animals, 2 quadrants.
+PANEL = {
+    "mirror": {},
+    "no-cows": {"pasture_target": 0},
+    "field-like": {"melon_tiles": 11, "pasture_target": 0, "goose_target": 6,
+                   "land_purchases": 1, "hands_target": 6},
+    "melon-rush": {"melon_tiles": 20, "pasture_target": 0, "goose_target": 4},
+    "goose-engine": {"melon_tiles": 0, "goose_target": 24, "pasture_target": 3},
+}
+
+
+def run_panel(cfg_a, baseline_kwargs, n, verbose=False):
+    """Score the variant against every panel member. Returns per-opponent means."""
+    results = {}
+    for name, extra in PANEL.items():
+        cfg_b = Config(**{**baseline_kwargs, **extra})
+        margins, seats, wins, games = compare(cfg_a, cfg_b, n, verbose)
+        mean = statistics.mean(margins)
+        sd = statistics.stdev(margins) if len(margins) > 1 else 0.0
+        stderr = sd / math.sqrt(len(margins)) if margins else 0.0
+        results[name] = (mean, mean - 1.96 * stderr, mean + 1.96 * stderr, wins, games)
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", default="", help="e.g. melon_tiles=12,hands_target=9")
@@ -120,7 +154,29 @@ def main():
     ap.add_argument("--null", action="store_true",
                     help="compare defaults against defaults to measure the noise floor")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--panel", action="store_true",
+                    help="score against several strategies, not just a mirror")
     args = ap.parse_args()
+
+    if args.panel:
+        base_kwargs = parse_kwargs(args.baseline)
+        cfg_a = Config(**{**base_kwargs, **parse_kwargs(args.variant)})
+        print(f"variant: {args.variant or '(defaults)'}   {args.n} seeds vs each opponent\n")
+        header = f"{'opponent':<14} {'margin':>10} {'95% CI':>22} {'wins':>8}"
+        print(header)
+        print("-" * len(header))
+        results = run_panel(cfg_a, base_kwargs, args.n)
+        for name, (mean, lo, hi, wins, games) in results.items():
+            ci = f"[{lo:>+8,.0f}, {hi:>+8,.0f}]"
+            print(f"{name:<14} {mean:>+10,.0f} {ci:>22} {wins:>4}/{games}")
+        worst = min(results.values(), key=lambda r: r[0])[0]
+        avg = statistics.mean(r[0] for r in results.values())
+        print(f"\n  average {avg:>+10,.0f}    worst case {worst:>+10,.0f}")
+        if worst < 0:
+            print("  Loses to at least one strategy -- not a safe adopt.")
+        else:
+            print("  Beats every panel member.")
+        return
 
     cfg_b = Config(**parse_kwargs(args.baseline))
     cfg_a = Config(**parse_kwargs(args.baseline)) if args.null else Config(
