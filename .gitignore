@@ -4,3 +4,8 @@ replay.json
 replays/
 logs/
 *.tar.gz
+dist/
+# Episode replays are bulk data, not source. The structured history in
+# data/ladder-log.jsonl IS tracked -- it is the record of what we learned when.
+data/replays/
+data/ladder-runs.log
