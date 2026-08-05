@@ -71,6 +71,9 @@ class Config:
         # reproduces the old pure-priority ordering, which measured 71.5% of
         # worker turns spent moving.
         self.travel_weight = 8.0
+        # Buy animal feed instead of growing it, trading wheat price escalation
+        # for tiles and worker-turns. See plan_layout.
+        self.buy_feed = False
         self.__dict__.update(kw)
 
 
@@ -147,11 +150,19 @@ def plan_layout(farm, cfg, n_workers):
 
     # One goose eats 1 wheat/day; wheat yields 0.8/tile/day, so a coop needs
     # ~1.25 wheat tiles behind it. Keep a 2:1 ratio for margin.
-    per_coop = TILE_COST["COOP"] + 2 * TILE_COST["WHEAT"]
+    #
+    # Buying feed instead frees both the tiles and the labour behind them. A3's
+    # LP said grow it -- but the LP priced land, and the real constraint turned
+    # out to be worker-turns spent walking between scattered crop tiles. An
+    # animal packs 4 actions/day onto one tile; a wheat tile spreads 1.2
+    # actions/day across many. Whether the wheat price escalation is worth that
+    # density is an empirical question, so it is a switch.
+    wheat_per_coop = 0 if cfg.buy_feed else 2
+    per_coop = TILE_COST["COOP"] + wheat_per_coop * TILE_COST["WHEAT"]
     coops = max(0, min(cfg.goose_target, int(remaining // per_coop)))
     remaining -= coops * per_coop
 
-    wheat = 2 * coops + max(0, int(remaining // TILE_COST["WHEAT"]))
+    wheat = wheat_per_coop * coops + max(0, int(remaining // TILE_COST["WHEAT"]))
 
     roles = {}
     quota = [("MELON", melon), ("COOP", coops), ("WHEAT", wheat)]
@@ -418,9 +429,13 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
 
     # Keep enough wheat banked to feed every animal for two days.
     feed_reserve = animals_alive * 2
-    spare_wheat = shed.get("WHEAT", 0) - feed_reserve
-    if spare_wheat > 0:
-        orders.append(["SELL", "WHEAT", spare_wheat])
+    banked = shed.get("WHEAT", 0)
+    if cfg.buy_feed:
+        short = feed_reserve + animals_alive - banked
+        if short > 0 and money > cfg.cash_floor + short * 60:
+            orders.append(["BUY_PRODUCT", "WHEAT", short])
+    elif banked - feed_reserve > 0:
+        orders.append(["SELL", "WHEAT", banked - feed_reserve])
 
     # Seed buying. Melon first -- it is time-critical and the season only fits
     # two cycles.
