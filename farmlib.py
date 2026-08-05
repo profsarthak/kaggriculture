@@ -192,6 +192,28 @@ def distance(a, b):
 TILE_COST = {"MELON": 0.91, "WHEAT": 1.20, "COOP": 4.20, "PASTURE": 3.70}
 
 
+def tile_cost(role, cfg):
+    """Daily action cost charged to a tile when sizing the farm.
+
+    A2 derived these analytically. Measured spend per tile-day
+    (analysis/tilecost.py) is quite different: melon 1.74 against a model of
+    0.91, coop 2.17 against 4.20, pasture 1.81 against 3.70.
+
+    **Do not "correct" the model to match.** Substituting the measured values
+    scores -16,640. Measured spend is what the tiles *get*, not what they
+    *need*, and the farm is labour-constrained: a coop wants four actions a day
+    (FEED, CARE, HARVEST, COLLECT_FERTILIZER) and is receiving 2.17. Charging it
+    the observed 2.17 tells the layout it can afford more animals, which makes
+    the existing under-service worse.
+
+    The model's numbers are requirements and are right to be. The gap between
+    4.20 and 2.17 is a measure of how far short we fall, not an error.
+
+    Overridable per config as `tc_<role.lower()>` so this stays testable.
+    """
+    return getattr(cfg, "tc_" + role.lower(), None) or TILE_COST[role]
+
+
 def animal_for(structure, cfg):
     """Which animal belongs on a structure. Coops are geese by definition."""
     return "GOOSE" if structure == "COOP" else cfg.pasture_animal
@@ -255,17 +277,17 @@ def plan_layout(farm, cfg, n_workers):
     # they scale proportionally so one extra melon tile shaves a fraction of a
     # coop rather than dropping a whole one.
     melon = max(0, min(cfg.melon_tiles, len(tiles)))
-    remaining = max(0.0, budget - melon * TILE_COST["MELON"])
+    remaining = max(0.0, budget - melon * tile_cost("MELON", cfg))
 
     # Pastures are claimed before coops. Milk and wool have far higher base
     # prices than eggs and the field averages only 3.4 animals, so those pools
     # are barely contested -- but they are shallow (76 and 59 units) so this is
     # a small fixed allocation, not a scaling one (docs/01-market.md).
-    per_pasture = TILE_COST["PASTURE"] + wheat_per_coop * TILE_COST["WHEAT"]
+    per_pasture = tile_cost("PASTURE", cfg) + wheat_per_coop * tile_cost("WHEAT", cfg)
     pastures = max(0, min(cfg.pasture_target, int(remaining // per_pasture) if per_pasture else 0))
     remaining = max(0.0, remaining - pastures * per_pasture)
 
-    per_coop = TILE_COST["COOP"] + wheat_per_coop * TILE_COST["WHEAT"]
+    per_coop = tile_cost("COOP", cfg) + wheat_per_coop * tile_cost("WHEAT", cfg)
     coop_demand = cfg.goose_target * per_coop
 
     if coop_demand > remaining and per_coop > 0:
@@ -279,7 +301,7 @@ def plan_layout(farm, cfg, n_workers):
     # wheat. Wheat is the filler because it is the only crop with unbounded
     # market depth (docs/01-market.md).
     feed_tiles = int(math.ceil(wheat_per_coop * (coops + pastures)))
-    extra = max(0, int(surplus // TILE_COST["WHEAT"]))
+    extra = max(0, int(surplus // tile_cost("WHEAT", cfg)))
     wheat = feed_tiles + min(extra, cfg.max_extra_wheat)
 
     # Tiles are handed out nearest-the-shed first, so this order decides who
