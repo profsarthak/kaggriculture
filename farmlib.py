@@ -39,12 +39,12 @@ class Config:
     """A strategy. Defaults are the Phase A recommendation."""
 
     def __init__(self, **kw):
-        # A4 derived 8 against a contesting opponent and 9 measured best for a
-        # long time. Coordinate descent moved it to 7 once the flock reached
-        # four pastures: melon and livestock compete for the same layout budget,
-        # so as the animals improve the marginal melon tile gets worse. Not a
+        # A4 derived 8 against a contesting opponent, and that was right for the
+        # agent which existed then. It has fallen 9 -> 7 -> 5 as the herd grew:
+        # melon and livestock compete for the same layout budget, so every
+        # improvement to the animals makes the marginal melon tile worse. Not a
         # smooth knob -- see docs/09-ab-testing.md.
-        self.melon_tiles = 7
+        self.melon_tiles = 5
         # docs/03-allocation.md: animal count at the optimum.
         self.goose_target = 16
         # docs/03-allocation.md predicted 6-9; measured 8 for most of the
@@ -71,14 +71,17 @@ class Config:
         self.labour_headroom = 0.55
         # Wheat a worker collects per shed trip. One trip should cover a day of
         # feeding for the animals that worker tends.
-        # Measured +2,632 (20/20) against 6. Carrying less means more shed trips
-        # but each PICKUP is one turn regardless of quantity, and a worker
-        # loaded with feed it does not need is one that skipped a fetch it did.
-        self.feed_carry = 4
+        # Fell 6 -> 4 -> 3 as the herd grew. Each PICKUP is one turn regardless
+        # of quantity, so carrying less costs more trips -- but a worker holding
+        # feed it will not use is one that skipped a fetch it needed, and with
+        # more animals those fetches matter more.
+        self.feed_carry = 3
         # Priority points charged per step of walking when ranking tasks. 0
         # reproduces the old pure-priority ordering, which measured 71.5% of
-        # worker turns spent moving.
-        self.travel_weight = 8.0
+        # worker turns spent moving. Raised 8 -> 13 by the tuner; note that 12
+        # measured -10,506 at an earlier config, so this is strongly coupled to
+        # the rest and should not be moved on its own.
+        self.travel_weight = 13.0
         # Buy animal feed instead of growing it, trading wheat price escalation
         # for tiles and worker-turns. See plan_layout.
         self.buy_feed = False
@@ -96,12 +99,12 @@ class Config:
         # contests it. Cows beat sheep decisively (+11,561 vs +1,037) because
         # wool's pool is shallower still.
         #
-        # The count has climbed 2 -> 3 -> 5 as throughput improved. Milk's pool
-        # is only 76 units deep, but that is the *static* depth: with shops
-        # unlocked the town drains ~680 milk a season, so the pool refills and
-        # a bigger herd does not flood it the way the raw depth suggests.
-        # Beyond 5 the gain fades (6: +2,455, 8: +1,452) as labour runs short.
-        self.pasture_target = 5
+        # The count has climbed 2 -> 3 -> 5 -> 7 as throughput improved. Milk's
+        # pool is only 76 units deep, but that is the *static* depth: with shops
+        # unlocked the town drains ~680 milk a season, so it refills and a bigger
+        # herd does not flood it the way the raw number suggests. Cows are now
+        # the core of the strategy rather than a side allocation.
+        self.pasture_target = 7
         self.pasture_animal = "COW"
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.
