@@ -69,6 +69,40 @@ idle and no measured way to use them.** The layout's cost model says labour is s
 observation says it is not, so the model is wrong somewhere. Finding out where is the most
 likely source of the next real gain.
 
+## Resolved: the idle was early-season, and it was capital not labour
+
+Measuring idle by day rather than in aggregate split it cleanly in two:
+
+| day | idle | | hour | idle |
+|---:|---:|---|---:|---:|
+| 0 | 25.5% | | 0 | 0.0% |
+| 3 | 51.0% | | 8 | 7.8% |
+| **6** | **81.2%** | | 16 | 26.9% |
+| 12 | 11.5% | | 20 | 47.0% |
+| 21 | 1.9% | | 23 | 68.7% |
+
+The by-hour pattern is structural and not worth fighting: watering and feeding are once-a-day
+tasks, so work genuinely runs out late in the day.
+
+The by-day pattern is not. Days 0–8 are a **full crew standing around while the farm is
+capital-bound**, not labour-bound: every plantable tile is already planted and watered and there
+is no money for more. Hiring now scales to available work, capped by `hands_target` and floored
+by `min_hands`: **+3,370, 20/20**, CI [+3,203, +3,537].
+
+**The floor is the whole story, and my first attempt got it backwards.** At `min_hands=2` the
+same mechanism scores **−13,293** (0/12), because a cash guard then strips the crew exactly when
+the farm is being built. `tiles_per_hand=3` scored −18,104 *despite nominally hiring more
+hands*, for the same reason. What works is trimming a couple of genuinely idle hands while never
+dropping below six — arriving at day 10 with half a farm costs far more than a few days of
+surplus wages.
+
+| | before | after |
+|---|---:|---:|
+| self-play | 53,472 | **57,169** |
+| per-seed stdev | 1,382 | **430** |
+| work | 33.1% | 34.9% |
+| idle | 22.4% | 20.1% |
+
 ## Knobs re-swept and holding
 
 `travel_weight` 8 (5 is −1,482 with the CI crossing zero, 12 is −10,506, 16 is −8,802);

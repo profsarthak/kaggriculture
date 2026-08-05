@@ -103,6 +103,16 @@ class Config:
         # Take any pending work on the tile a worker already occupies before
         # walking anywhere. Standing work costs no movement.
         self.finish_tile = True
+        # Scale the daily crew to the work actually available rather than
+        # hiring a fixed crew from day 0. See market_orders.
+        # Measured +3,370 (20/20) against a fixed crew. The floor is
+        # load-bearing: at min_hands=2 the same mechanism scores -13,293,
+        # because the cash guard then strips the crew exactly when the farm is
+        # being built. Trimming a couple of idle hands is worth a little;
+        # arriving at day 10 with half a farm is not.
+        self.hire_to_demand = True
+        self.tiles_per_hand = 6
+        self.min_hands = 6
         self.__dict__.update(kw)
 
 
@@ -580,8 +590,31 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
 
     # Hire at the top of the day; hands vanish overnight. Each hire is its own
     # order and the per-turn cap is 10, so this has to own hour 0 alone.
+    #
+    # Hire to demand, not to a fixed target. The early season is capital-bound,
+    # not labour-bound: measured idle is 25% on day 0, 51% on day 3 and 81% on
+    # day 6, because every plantable tile is already planted and watered and
+    # there is no money for more. Paying a full crew to stand around is worst
+    # exactly when capital compounds hardest.
     if hour == 0:
-        for _ in range(max(0, cfg.hands_target - farm["hires_today"])):
+        want = cfg.hands_target
+        if cfg.hire_to_demand:
+            workable = 0
+            for (x, y) in roles:
+                tile = farm["tiles"][y][x]
+                if isinstance(tile, dict):
+                    workable += 1                 # a plant or animal to tend
+                elif tile is None:
+                    workable += 1                 # a tile we could plant
+            want = max(
+                cfg.min_hands,
+                min(cfg.hands_target, -(-workable // cfg.tiles_per_hand)),
+            )
+            # Never hire more than the bank can stand: the n-th hire of the day
+            # costs fib(n), so a full crew on an empty bank is real money.
+            if money < cfg.cash_floor * 4:
+                want = min(want, cfg.min_hands)
+        for _ in range(max(0, want - farm["hires_today"])):
             orders.append(["HIRE"])
         return orders[:MAX_MARKET_ORDERS]
 
