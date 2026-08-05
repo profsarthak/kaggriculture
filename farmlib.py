@@ -28,6 +28,8 @@ ANIMAL_INFO = {
     "COW":   {"cost": 400, "structure": "PASTURE", "product": "MILK"},
     "SHEEP": {"cost": 500, "structure": "PASTURE", "product": "WOOL"},
 }
+# Days from placement to first production (docs/02-labour.md).
+ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 LAND_PRICES = [1000, 2000, 4000]
 MAX_MARKET_ORDERS = 10
 SHED_CAP = 100
@@ -127,6 +129,11 @@ class Config:
         self.fert_carry = 3
         # Harvest day for fertilised crops. 0 keeps the unfertilised schedule.
         self.fert_harvest_day = 0
+        # Season length, used to stop planting crops that cannot mature. 0
+        # disables the check (plant right up to the final turn).
+        self.season_days = 30
+        # Days a new quadrant needs to repay itself before the season ends.
+        self.land_lead = 8
         self.__dict__.update(kw)
         if isinstance(self.sale_cap, (int, float)):
             # Convenience for sweeping: a scalar caps every shallow product.
@@ -400,7 +407,12 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
                     build_budget -= 1
             else:
                 crop = planting_choice(role, day, cfg)
-                if seeds.get(crop, 0) > 0:
+                # Do not plant what cannot mature. Melon needs 10 days and wheat
+                # 4, so late in the season a fresh planting is pure loss: the
+                # seed money, the PLANT action and every watering it consumes
+                # before the season ends with nothing harvested.
+                matures = day + CROP_INFO[crop]["harvest_day"] <= cfg.season_days - 1
+                if matures and seeds.get(crop, 0) > 0:
                     tasks.append((prio("PLANT", cfg), (x, y), ["PLANT", crop], crop))
             continue
 
@@ -742,6 +754,12 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     # contests them, but the pools are shallow so the allocation stays small.
     for structure in ("PASTURE", "COOP"):
         animal = animal_for(structure, cfg)
+        # A cow bought on day 25 never produces -- first yield is 8 days out,
+        # plus a day to build and place. Same reasoning as the planting cutoff.
+        if cfg.season_days:
+            lead = ANIMAL_FIRST_YIELD[animal] + 2
+            if obs["day"] + lead > cfg.season_days - 1:
+                continue
         vacant = sum(
             1
             for (x, y), role in roles.items()
@@ -762,7 +780,10 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     bought = len(farm["unlocked_quadrants"]) - 1
     if bought < cfg.land_purchases:
         price = LAND_PRICES[bought]
-        if money > price + 1500:
+        # Land bought too late is pure waste: with the planting cutoff above,
+        # its tiles never even get sown.
+        in_time = not cfg.season_days or obs["day"] + cfg.land_lead <= cfg.season_days - 1
+        if money > price + 1500 and in_time:
             orders.append(["BUY_LAND"])
 
     return orders[:MAX_MARKET_ORDERS]
