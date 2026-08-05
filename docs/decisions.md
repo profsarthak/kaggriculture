@@ -190,3 +190,40 @@ entirely, where 11 is better.
 **Phase A is complete.** Next: Phase B, the agent portfolio. First problem it has to solve is
 the one no analysis in Phase A can — bootstrapping from $3,000 to the ~$7,000 livestock
 position A3 assumes, while getting melon planted on day 0.
+
+---
+
+## 2026-08-05 — Phase B: agent v2. 6,704 → 27,014.
+
+**What.** `farmlib.py` holds the decision core parameterised by `Config`; `main.py` instantiates
+it so Phase C can fork strategies without duplicating logic. `bench.py` scores over seeded
+episodes *and* inspects the final board for silent breakage. Detail in [05-agent.md](05-agent.md).
+
+**Result.** 15 seeded episodes vs `starter`: mean 27,014, 15/15 wins, stdev 1,052. Four times
+the v1 wheat loop (6,704) and 7.7× the opponent (3,500).
+
+**The health harness earned its keep three times.** Every one of these looked like "a slightly
+lower score" and would have shipped:
+
+1. *The entire goose engine never ran.* `PLACE` takes the animal from the acting worker's
+   inventory; I only checked the shed. 14 empty coops/episode while the score sat at 12,728 and
+   climbing.
+2. *Hired hands never collected feed.* Inventories empty overnight, so `FEED` silently no-ops.
+   My first fix ran the pickup at hour 0 — but hires are market orders settled *after* player
+   actions, so hands don't exist yet at hour 0. Had to become a standing task.
+3. *Coops built that could never be stocked*, wasting the build action and the tile.
+
+**Corrects A3 — travel does matter, a lot.** A3 modelled it as a flat multiplier and found the
+optimum moved 1.7% between 0% and 50% overhead. A real greedy assignment behaves nothing like
+that: working every unlocked tile scatters tasks over 75 tiles and collapses throughput.
+Restricting to a compact subset near the shed was the single largest change in Phase B
+(7,778 → 19,518). A3's conclusion that *land is not binding* stands; its implication that the
+agent can therefore ignore geometry does not.
+
+**Corrects A3 — hands 6, not 6–9.** Twelve hands scores about half as much (11,586 vs 22,075)
+despite a healthier board. Direction right, magnitude understated.
+
+**Open, in rough order of expected value.** Watering is still behind (13.5 weeds/episode); only
+6 animals get placed against A4's equilibrium of 8; the agent ignores A4's best-response table
+entirely and plays a fixed 8 melon tiles regardless of what the opponent does; and there is no
+margin-conditioned risk despite the payoff being `sign(M_i − M_j)`.
