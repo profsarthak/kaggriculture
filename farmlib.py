@@ -140,38 +140,55 @@ def plan_layout(farm, cfg, n_workers):
 
     budget = 24 * n_workers * (1 - cfg.labour_headroom)
 
-    # Size the flock against the wheat needed to feed it, and only then spend
-    # what is left on more wheat.
+    # Each target is honoured independently, and everything scales together when
+    # the budget cannot cover them.
     #
-    # Filling melon, then every coop, then wheat with the remainder is a trap:
-    # when the budget is tight, wheat gets zero tiles, the animals starve and
-    # there is no early income either. That failure is silent and total -- it
-    # scored ~1,283 (below the $3,000 starting bank) with zero variance across
-    # seeds, because it fails the same way every time.
-    melon = min(cfg.melon_tiles, len(tiles))
-    remaining = budget - melon * TILE_COST["MELON"]
-
-    # One goose eats 1 wheat/day; wheat yields 0.8/tile/day, so a coop needs
-    # ~1.25 wheat tiles behind it. Keep a 2:1 ratio for margin.
+    # The previous version spent melon's budget first and fitted coops into
+    # whatever remained, which meant `melon_tiles` silently moved the flock size
+    # too: one extra melon tile could cost an entire coop. That produced a
+    # jagged, non-monotonic response (9 tiles +2,703, 16 tiles -6,716, all with
+    # tight confidence intervals) and made single-parameter sweeps unsafe --
+    # they were sampling a discontinuous function. See docs/09-ab-testing.md.
     #
-    # Buying feed instead frees both the tiles and the labour behind them. A3's
-    # LP said grow it -- but the LP priced land, and the real constraint turned
-    # out to be worker-turns spent walking between scattered crop tiles. An
-    # animal packs 4 actions/day onto one tile; a wheat tile spreads 1.2
-    # actions/day across many. Whether the wheat price escalation is worth that
-    # density is an empirical question, so it is a switch.
+    # Proportional scaling keeps each knob doing one thing and degrades smoothly
+    # instead of dropping a whole coop at a threshold.
+    #
+    # One goose eats 1 wheat/day and wheat yields 0.8/tile/day, so a coop needs
+    # ~1.25 wheat tiles behind it; 2 gives margin. Buying feed instead is a
+    # measured loss (6,053 vs 30,850) -- see docs/08-field-study.md -- but stays
+    # switchable so the negative result is reproducible.
     wheat_per_coop = 0 if cfg.buy_feed else 2
-    per_coop = TILE_COST["COOP"] + wheat_per_coop * TILE_COST["WHEAT"]
-    coops = max(0, min(cfg.goose_target, int(remaining // per_coop)))
-    remaining -= coops * per_coop
 
-    wheat = wheat_per_coop * coops + max(0, int(remaining // TILE_COST["WHEAT"]))
+    # Melon is honoured exactly. It is a small, strategically-chosen number
+    # (A4's contested-pool equilibrium) costing ~10% of the budget, so there is
+    # no reason to let it be squeezed -- and scaling it made `melon_tiles` a
+    # weight rather than a count, which silently delivered 5 tiles when asked
+    # for 9. The flock and its feed absorb the budget constraint instead, and
+    # they scale proportionally so one extra melon tile shaves a fraction of a
+    # coop rather than dropping a whole one.
+    melon = max(0, min(cfg.melon_tiles, len(tiles)))
+    remaining = max(0.0, budget - melon * TILE_COST["MELON"])
+
+    per_coop = TILE_COST["COOP"] + wheat_per_coop * TILE_COST["WHEAT"]
+    coop_demand = cfg.goose_target * per_coop
+
+    if coop_demand > remaining and per_coop > 0:
+        coops = int(remaining // per_coop)
+        surplus = remaining - coops * per_coop
+    else:
+        coops = cfg.goose_target
+        surplus = remaining - coop_demand
+
+    # Feed tracks the flock we actually built, then spare budget buys income
+    # wheat. Wheat is the filler because it is the only crop with unbounded
+    # market depth (docs/01-market.md).
+    wheat = wheat_per_coop * coops + max(0, int(surplus // TILE_COST["WHEAT"]))
 
     roles = {}
     quota = [("MELON", melon), ("COOP", coops), ("WHEAT", wheat)]
     it = iter(tiles)
     for role, count in quota:
-        for _ in range(count):
+        for _ in range(max(0, count)):
             t = next(it, None)
             if t is None:
                 return roles

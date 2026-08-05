@@ -71,10 +71,23 @@ This is why the cadence should start fast and slow down, and it is not a matter 
 - **Later changes are small.** Parameter tuning moves win rate a couple of points, which needs
   hundreds of episodes to see at all.
 
-At the accrual rates typical of a fresh submission, ~50 episodes is roughly a day and ~800 is
-one to two weeks. So: **daily while the changes are structural, weekly once it is tuning.**
-`ladder.py` measures the real accrual rate rather than assuming one, and reports how many more
-days a given effect size needs.
+**Measured accrual: 62 episodes/day** (2026-08-05, at rating ~500 with two tracked
+submissions). That converts the table above into a concrete cadence:
+
+| effect to resolve | episodes | wall-clock |
+|---:|---:|---:|
+| 70% | 50 | ~0.8 days |
+| 60% | 200 | ~3.2 days |
+| 55% | 800 | ~13 days |
+
+So: **daily while the changes are structural, weekly once it is tuning** — which is what the
+effect sizes dictate, not a preference. `ladder.py` re-measures the rate on every run rather
+than assuming it, since accrual falls as a submission ages.
+
+Note this is the cadence for *ladder-confirmed* iteration. Offline, `ab.py` resolves a
+500-coin effect in 3 seeds (~1 minute), so local iteration is far cheaper and should carry most
+of the load — the ladder is for validating that offline gains transfer, which is not
+guaranteed (see `docs/08-field-study.md`).
 
 ## Win rate stops being the metric
 
