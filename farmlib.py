@@ -42,10 +42,11 @@ class Config:
         self.melon_tiles = 8
         # docs/03-allocation.md: animal count at the optimum.
         self.goose_target = 16
-        # docs/03-allocation.md predicted 6-9 hands; measured optimum is 6.
-        # Twelve hands scores roughly half as much despite a healthier board --
-        # the extra hires cost ~$9,660 a season and earn less than that.
-        self.hands_target = 6
+        # docs/03-allocation.md predicted 6-9 hands; measured optimum is 8.
+        # Ten scores well below (26k vs 37k) -- the extra hires are Fibonacci
+        # priced and charged daily, and there is nothing profitable left for
+        # them to do.
+        self.hands_target = 8
         # docs/04-pools.md: past ~8 animals' worth, COLLECT_FERTILIZER earns
         # less than the egg alternative and accelerates the flood.
         self.fertilizer_quota = 8
@@ -62,10 +63,14 @@ class Config:
         # travel as a flat multiplier and concluded it barely mattered; with a
         # real greedy assignment over scattered tiles it matters a great deal,
         # so this is swept empirically rather than derived.
-        self.labour_headroom = 0.25
+        self.labour_headroom = 0.65
         # Wheat a worker collects per shed trip. One trip should cover a day of
         # feeding for the animals that worker tends.
         self.feed_carry = 6
+        # Priority points charged per step of walking when ranking tasks. 0
+        # reproduces the old pure-priority ordering, which measured 71.5% of
+        # worker turns spent moving.
+        self.travel_weight = 8.0
         self.__dict__.update(kw)
 
 
@@ -128,26 +133,35 @@ def plan_layout(farm, cfg, n_workers):
     tiles.sort(key=lambda t: (abs(t[0] - centre[0]) + abs(t[1] - centre[1]), t))
 
     budget = 24 * n_workers * (1 - cfg.labour_headroom)
-    roles = {}
-    melon = cfg.melon_tiles
-    coops = cfg.goose_target
-    spent = 0.0
 
-    for t in tiles:
-        if melon > 0:
-            role = "MELON"
-        elif coops > 0:
-            role = "COOP"
-        else:
-            role = "WHEAT"
-        if spent + TILE_COST[role] > budget:
-            break
-        roles[t] = role
-        spent += TILE_COST[role]
-        if role == "MELON":
-            melon -= 1
-        elif role == "COOP":
-            coops -= 1
+    # Size the flock against the wheat needed to feed it, and only then spend
+    # what is left on more wheat.
+    #
+    # Filling melon, then every coop, then wheat with the remainder is a trap:
+    # when the budget is tight, wheat gets zero tiles, the animals starve and
+    # there is no early income either. That failure is silent and total -- it
+    # scored ~1,283 (below the $3,000 starting bank) with zero variance across
+    # seeds, because it fails the same way every time.
+    melon = min(cfg.melon_tiles, len(tiles))
+    remaining = budget - melon * TILE_COST["MELON"]
+
+    # One goose eats 1 wheat/day; wheat yields 0.8/tile/day, so a coop needs
+    # ~1.25 wheat tiles behind it. Keep a 2:1 ratio for margin.
+    per_coop = TILE_COST["COOP"] + 2 * TILE_COST["WHEAT"]
+    coops = max(0, min(cfg.goose_target, int(remaining // per_coop)))
+    remaining -= coops * per_coop
+
+    wheat = 2 * coops + max(0, int(remaining // TILE_COST["WHEAT"]))
+
+    roles = {}
+    quota = [("MELON", melon), ("COOP", coops), ("WHEAT", wheat)]
+    it = iter(tiles)
+    for role, count in quota:
+        for _ in range(count):
+            t = next(it, None)
+            if t is None:
+                return roles
+            roles[t] = role
     return roles
 
 
@@ -162,13 +176,18 @@ PRIORITY = {
     "HARVEST": 80,
     "FETCH": 78,
     "PLACE": 75,
+    # CARE banks +1 egg/day per goose for one action -- worth about as much as
+    # the harvest it feeds. At its old priority (below PLANT) it fired 3 times
+    # in an entire episode.
+    "CARE": 72,
     "WATER_BONUS": 70,
     "PLANT": 60,
     "BUILD": 55,
     "DIG": 50,
-    "CARE": 40,
     "FERT": 30,
 }
+
+
 
 
 def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
@@ -275,7 +294,8 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
 
 # --- worker assignment ----------------------------------------------------
 
-def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese, cfg_feed_carry=6):
+def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese,
+           cfg_feed_carry=6, travel_weight=5.0):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -290,22 +310,51 @@ def assign(units, tasks, carried_wheat, carried_geese, seeds, shed_geese, cfg_fe
     geese = list(carried_geese)
     in_shed = shed_geese
 
+    # Order tasks by value *net of the walk*, not by raw priority.
+    #
+    # Ranking by priority alone means the most urgent task in the world gets the
+    # nearest free worker, then the next, and so on -- which scatters everyone
+    # across the board. Measured: 71.5% of worker turns spent moving, 23.2%
+    # working (analysis/diagnose.py). Charging each task the distance to its
+    # closest available worker keeps work local without hard territory, which
+    # was tried (angular wedges) and made travel worse: a wedge is long and thin,
+    # so its owner is usually at the wrong end of it.
+    def nearest_free(pos):
+        best = None
+        for i, upos in enumerate(units):
+            if actions[i] is not None:
+                continue
+            d = distance(upos, pos)
+            if best is None or d < best:
+                best = d
+        return best if best is not None else 0
+
+    tasks = sorted(
+        tasks,
+        key=lambda t: -(t[0] - travel_weight * nearest_free(t[1])),
+    )
+
     for _priority, pos, op, need in tasks:
         if pos in taken:
             continue
 
+        def feasible(i):
+            if actions[i] is not None:
+                return False
+            if need == "FEED" and wheat[i] <= 0:
+                return False       # no feed on this worker
+            if need == "GOOSE" and geese[i] <= 0:
+                return False       # not carrying an animal to place
+            if need == "FETCH_GOOSE" and geese[i] > 0:
+                return False       # already carrying one
+            if need == "FETCH_WHEAT" and wheat[i] > 0:
+                return False       # already stocked for today
+            return True
+
         best, best_d = None, None
         for i, upos in enumerate(units):
-            if actions[i] is not None:
+            if not feasible(i):
                 continue
-            if need == "FEED" and wheat[i] <= 0:
-                continue           # no feed on this worker
-            if need == "GOOSE" and geese[i] <= 0:
-                continue           # not carrying an animal to place
-            if need == "FETCH_GOOSE" and geese[i] > 0:
-                continue           # already carrying one
-            if need == "FETCH_WHEAT" and wheat[i] > 0:
-                continue           # already stocked for today
             d = distance(upos, pos)
             if best_d is None or d < best_d:
                 best, best_d = i, d
@@ -466,6 +515,7 @@ def make_agent(cfg=None):
         assigned = assign(
             units, tasks, carried, carried_geese,
             private["seeds"], private["shed"].get("GOOSE", 0), cfg.feed_carry,
+            cfg.travel_weight,
         )
 
         return {
