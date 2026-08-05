@@ -227,3 +227,70 @@ despite a healthier board. Direction right, magnitude understated.
 6 animals get placed against A4's equilibrium of 8; the agent ignores A4's best-response table
 entirely and plays a fixed 8 melon tiles regardless of what the opponent does; and there is no
 margin-conditioned risk despite the payoff being `sign(M_i − M_j)`.
+
+---
+
+## 2026-08-05/06 — Overnight session: 27,014 → 68,826 self-play
+
+Detail in [07-routine.md](07-routine.md), [08-field-study.md](08-field-study.md),
+[09-ab-testing.md](09-ab-testing.md) through [16-panel-testing.md](16-panel-testing.md).
+
+### Measurement came first, and twice invalidated earlier conclusions
+
+**Paired, seat-swapped A/B (`ab.py`).** Every comparison before this ran the variant as player 0
+against the baseline as player 1 and compared means. `HIRE` and `BUY_LAND` settle in player
+order, so that partly measured the *seat*. Swapping seats and pairing dropped the per-seed stdev
+to ~430, so **3 seeds now resolves a 500-coin effect** where the old method could not separate
+29,065 from 28,577 over five. Several earlier "clearly worse" verdicts were unreliable.
+
+**The agent is deterministic** — identical configs produce a paired margin of exactly 0 with 7 of
+10 seeds ending in exact ties. Sample size means *distinct seeds* and nothing else.
+
+**Panel testing (`ab.py --panel`).** Self-play rewards beating ourselves. A variant is now scored
+against five strategies and adopted on the **worst case**.
+
+### Adopted
+
+| change | measured |
+|---|---:|
+| 5 cow pastures | +11,673 for the first two, then +3,326 at 5 |
+| route commitment across turns | +6,405 |
+| coordinate-descent config (melon 7, hands 9) | +10,070 as a set |
+| hire to demand, floored at 6 | +3,370 |
+| feed carry 6 → 4 | +2,632 |
+| finish the tile you stand on | +2,371 |
+| headroom 0.58 → 0.55 | +1,532 |
+| end-of-season investment cutoffs | +1,066 |
+| `PLACE` priority 75 → 90 | +967 |
+
+### Rejected, with data
+
+Carrot opening (−13,963), fertilising melon (−4,861, and worse at every earlier harvest date),
+buying feed (−24,800), sale metering (no effect), angular worker zones (travel got *worse*),
+copying the field's parameters wholesale (three separate failures).
+
+### Three mistakes worth remembering
+
+**Reading noise as signal.** v5 sat 18 points below v4 and I called it a failure to transfer.
+Rating standard error is ~`16·√n` — about ±62 at 15 episodes — so a 18-point gap means nothing.
+`ladder.py` said "too close to call" and was right.
+
+**Searching to the edge of the grid.** The first tuner run reported a local optimum with
+`pasture_target` at 4, which was simply the highest value in its list; 5 measures +3,326 beyond
+it. Ranges must extend past the current value in both directions.
+
+**Reasoning from static pool depth.** I justified capping the herd on milk's 76-unit depth, but
+with shops unlocked the town drains ~680 milk a season. The pool refills; the raw depth is the
+wrong number to plan against.
+
+### Silent-failure signature
+
+A parameter that changes nothing produces *identical* results, not a gradient. That signature
+caught the dead carrot feature (flat −4,175 across every value), the layout bootstrapping bug
+(~1,283 with zero variance), and three inert knobs (`goose_target`, `fertilizer_quota`, `FERT`
+priority). Worth checking for whenever a sweep looks flat.
+
+### Standing
+v6 submitted (55280289). Self-play 68,826; against real opponents we were at 38,322 versus the
+field's 50,411 on the older builds. **The field is still ahead**, and every panel member runs our
+engine, so the ladder remains the only source of information about genuinely stronger play.
