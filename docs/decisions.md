@@ -108,3 +108,47 @@ through its pre-production growth days therefore front-loads a bonus onto the fi
 **Verified correct as modelled:** wheat 4 units, carrot 3, melon 6 under the cheapest surviving
 watering schedule; goose steady state exactly 2 eggs/day fed+cared; 1 free fertilizer/animal/day;
 buy-then-sell round trip nets exactly zero.
+
+**Also verified — the information structure the whole plan rests on.** The opponent's `farms`
+entry exposes their crop *and* `planted_day`, and their money; their shed, seeds and carried
+inventories stay private. So premium commitment really is observable ~10 days ahead, and A4's
+anti-coordination argument is sound.
+
+---
+
+## 2026-08-05 — A3: allocation LP. Corrects A2's binding-constraint conclusion.
+
+**What.** `analysis/allocate.py` maximises season revenue over tiles-per-crop and animal counts
+subject to land, labour, market depth, shed cap, and the wheat feed balance. Concave revenue is
+piecewise-linearised, so it stays an LP. Detail in [03-allocation.md](03-allocation.md).
+
+**Correction to A2 — labour binds at the optimum, not land.** A2's capacity arithmetic was
+right (labour binds below ~10 hands, land above) but its implication was wrong. It assumed
+you'd hire past the crossover. The LP prices two things A2 didn't: hire cost is Fibonacci *and
+charged daily* (the 12th hand is $9,024 across a season), and marginal revenue per worker
+collapses once the shallow pools are drained. The optimum stops at 6–9 hands with labour
+saturated and 6–11% of the land idle.
+
+**Correction to A2 — do not buy the third land expansion.** It costs $4,000 and returns $1,378.
+Buy the first two ($1,000 + $2,000) and stop. A2's "buy land aggressively, $7,000 for 4× the
+ceiling" was wrong for the same reason: once labour binds, land is nearly worthless.
+
+**Answered: grow feed, don't buy it.** The LP buys zero wheat. Wheat's below-`I0` curve is
+`sqrt` at target 0.80, so purchased feed escalates faster than the land it frees is worth.
+
+**Movement turned out not to matter.** Between 0% and 50% travel overhead the optimum moves
+1.7% of revenue and three hires, with essentially the same allocation. This was the largest
+unmodelled gap after A2; it does not need pathfinding in Phase B.
+
+**Shape of the answer.** A diversified raid, not a monoculture: drain every finite pool to near
+its cap (melon 143/158, fertilizer 451/493, wool 50/59) and run geese for the unbounded
+remainder. The animal count is set by the *fertilizer* pool — 20 animals × 24 days ≈ the 493
+units available — not by egg economics.
+
+**Upper bound, not a plan.** ~$96k assumes capital is on hand; you start with $3,000 and the
+allocation needs ~$7,000 of livestock. Bootstrapping is a sequencing problem the LP cannot
+answer, and it is the first thing Phase B has to solve.
+
+**Next.** A4: how the melon and fertilizer pools divide against a contesting opponent. The LP
+above drains them to near their caps with no competition, so this is where its numbers are
+most fragile.

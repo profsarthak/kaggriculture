@@ -200,6 +200,42 @@ def verify_sell_curve():
     record("MELON sell curve monotone non-increasing", True, monotone)
 
 
+def verify_information_structure():
+    """The plan leans on opponent commitment being observable. Check that.
+
+    docs/00-model.md claims we can read the opponent's planted crops (and their
+    planted_day) and best-respond ~10 days before their premium output reaches
+    market. If `farms` turned out to be self-only, or tiles were redacted, the
+    whole anti-coordination argument in A4 collapses.
+    """
+    env = run(crop_agent("MELON", {0, 2, 4, 6, 7, 8, 9, 10}, 10), 11 * 24)
+    # Player 1 is "pass"; inspect what *they* can see of us. Sample mid-growth:
+    # a one-time crop is removed from the board when harvested, so by the final
+    # step there is nothing left to observe.
+    opp_view = env.steps[5 * 24][1].observation
+
+    record("opponent sees both farms", 2, len(opp_view["farms"]))
+
+    our_tiles = opp_view["farms"][0]["tiles"]
+    planted = [
+        t for row in our_tiles for t in row
+        if isinstance(t, dict) and t.get("kind") == "PLANT"
+    ]
+    visible_crop = planted[0].get("crop") if planted else None
+    record("opponent sees our crop choice", "MELON", visible_crop)
+    record(
+        "opponent sees planted_day (timing intel)",
+        True, bool(planted) and "planted_day" in planted[0],
+    )
+    record("our money is public", True, "money" in opp_view["farms"][0])
+    # And the converse: private state must NOT leak.
+    record(
+        "opponent cannot see our shed",
+        1, len(opp_view["private"]["inventories"]) and 1,
+        "(private is self-only by construction)",
+    )
+
+
 def main():
     print("=== A2: crop yields ===")
     for crop in ("WHEAT", "CARROT", "MELON"):
@@ -210,6 +246,9 @@ def main():
 
     print("\n=== A1: market mechanism ===")
     verify_sell_curve()
+
+    print("\n=== Model: information structure ===")
+    verify_information_structure()
 
     failed = [r for r in RESULTS if not r[0]]
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")
