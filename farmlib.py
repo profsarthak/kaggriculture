@@ -68,7 +68,7 @@ class Config:
         # travel as a flat multiplier and concluded it barely mattered; with a
         # real greedy assignment over scattered tiles it matters a great deal,
         # so this is swept empirically rather than derived.
-        self.labour_headroom = 0.58
+        self.labour_headroom = 0.55
         # Wheat a worker collects per shed trip. One trip should cover a day of
         # feeding for the animals that worker tends.
         # Measured +2,632 (20/20) against 6. Carrying less means more shed trips
@@ -96,7 +96,7 @@ class Config:
         # against eggs at $50 and the field barely contests it, but the pool is
         # only 76 units deep so a third cow starts flooding it. Cows beat sheep
         # decisively (+11,561 vs +1,037) -- wool's pool is shallower still.
-        self.pasture_target = 2
+        self.pasture_target = 3
         self.pasture_animal = "COW"
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.
