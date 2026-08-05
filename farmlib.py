@@ -39,19 +39,19 @@ class Config:
     """A strategy. Defaults are the Phase A recommendation."""
 
     def __init__(self, **kw):
-        # A4 put the equilibrium commitment at 8 against a contesting opponent.
-        # Measured: 9 beats 8 by +2,703 (16/16, paired). Do not read that as
-        # "more melon is better" -- the surface is jagged because melon claims
-        # layout budget before coops, so each extra tile can cost a whole coop.
-        # 16 loses by 6,716. See docs/09-ab-testing.md.
-        self.melon_tiles = 9
+        # A4 derived 8 against a contesting opponent and 9 measured best for a
+        # long time. Coordinate descent moved it to 7 once the flock reached
+        # four pastures: melon and livestock compete for the same layout budget,
+        # so as the animals improve the marginal melon tile gets worse. Not a
+        # smooth knob -- see docs/09-ab-testing.md.
+        self.melon_tiles = 7
         # docs/03-allocation.md: animal count at the optimum.
         self.goose_target = 16
-        # docs/03-allocation.md predicted 6-9 hands; measured optimum is 8.
-        # Ten scores well below (26k vs 37k) -- the extra hires are Fibonacci
-        # priced and charged daily, and there is nothing profitable left for
-        # them to do.
-        self.hands_target = 8
+        # docs/03-allocation.md predicted 6-9; measured 8 for most of the
+        # project and 9 once the flock grew. Hire cost is Fibonacci and charged
+        # daily, so this stops paying quickly: 10 has repeatedly measured well
+        # below. This is a ceiling -- `hire_to_demand` sets the actual crew.
+        self.hands_target = 9
         # docs/04-pools.md: past ~8 animals' worth, COLLECT_FERTILIZER earns
         # less than the egg alternative and accelerates the flood.
         self.fertilizer_quota = 8
@@ -91,12 +91,17 @@ class Config:
         # Rejected: carrot loses monotonically (-3,865 at 3 days, -13,963 at
         # 12). Kept switchable so the negative result stays reproducible.
         self.carrot_until = 0
-        # Pasture tiles, stocked with cows or sheep. Measured +11,673 (16/16)
-        # against no pastures at all. Two is the peak: milk is worth $160 base
-        # against eggs at $50 and the field barely contests it, but the pool is
-        # only 76 units deep so a third cow starts flooding it. Cows beat sheep
-        # decisively (+11,561 vs +1,037) -- wool's pool is shallower still.
-        self.pasture_target = 3
+        # Pasture tiles, stocked with cows. Adding them at all was worth +11,673
+        # (16/16): milk is $160 base against eggs at $50 and the field barely
+        # contests it. Cows beat sheep decisively (+11,561 vs +1,037) because
+        # wool's pool is shallower still.
+        #
+        # The count has climbed 2 -> 3 -> 5 as throughput improved. Milk's pool
+        # is only 76 units deep, but that is the *static* depth: with shops
+        # unlocked the town drains ~680 milk a season, so the pool refills and
+        # a bigger herd does not flood it the way the raw depth suggests.
+        # Beyond 5 the gain fades (6: +2,455, 8: +1,452) as labour runs short.
+        self.pasture_target = 5
         self.pasture_animal = "COW"
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.

@@ -20,16 +20,22 @@ from farmlib import Config
 
 # Candidate values per parameter. Deliberately small steps -- the surface is
 # jagged enough that large jumps land somewhere unrelated.
+# Ranges must extend past the current value in both directions, or the search
+# silently reports a "local optimum" that is really the edge of the grid -- the
+# first run capped `pasture_target` at 4 and missed +3,326 at 5.
 GRID = {
-    "melon_tiles": [7, 8, 9, 10],
-    "labour_headroom": [0.48, 0.52, 0.55, 0.58, 0.62],
-    "pasture_target": [2, 3, 4],
-    "hands_target": [7, 8, 9],
-    "feed_carry": [3, 4, 5],
-    "travel_weight": [6.0, 8.0, 10.0],
-    "goose_target": [12, 16, 20],
-    "tiles_per_hand": [5, 6, 7],
-    "min_hands": [5, 6, 7],
+    "melon_tiles": [4, 5, 6, 7, 8, 9, 10, 12],
+    "labour_headroom": [0.40, 0.45, 0.50, 0.55, 0.60, 0.65],
+    "pasture_target": [3, 4, 5, 6, 7, 9],
+    "hands_target": [7, 8, 9, 10, 11],
+    "feed_carry": [3, 4, 5, 6],
+    "travel_weight": [5.0, 6.5, 8.0, 10.0, 13.0],
+    "goose_target": [10, 14, 16, 20, 26],
+    "tiles_per_hand": [4, 5, 6, 7, 8],
+    "min_hands": [4, 5, 6, 7, 8],
+    "land_purchases": [1, 2, 3],
+    "feed_ratio": [1.6, 2.0, 2.5],
+    "cash_floor": [100, 200, 400],
 }
 
 
