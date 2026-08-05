@@ -56,11 +56,33 @@ def health_report(env, player=0):
     return counts
 
 
+def resolve_opponent(spec, cfg):
+    """Allow benchmarking against ourselves, not just the built-in agents.
+
+    `starter` turned out to be a strawman: it finishes on ~3,500 coins while
+    real ladder opponents finish on ~41,000. Beating it 15/15 measured nothing.
+    Self-play against the current or a previous config is a far more honest
+    signal, and is also what Phase C's payoff matrix will be built from.
+    """
+    if spec == "self":
+        return make_agent(cfg)
+    if spec.startswith("cfg:"):
+        kwargs = {}
+        for pair in spec[4:].split(","):
+            key, _, value = pair.partition("=")
+            try:
+                kwargs[key] = float(value) if "." in value else int(value)
+            except ValueError:
+                kwargs[key] = value
+        return make_agent(Config(**kwargs))
+    return spec
+
+
 def run_episodes(cfg, opponent, n, verbose=False):
     scores, opp_scores, wins, health = [], [], 0, Counter()
     for seed in range(n):
         env = make("kaggriculture", configuration={"seed": seed})
-        env.run([make_agent(cfg), opponent])
+        env.run([make_agent(cfg), resolve_opponent(opponent, cfg)])
         final = env.steps[-1]
         us, them = final[0].reward or 0, final[1].reward or 0
         scores.append(us)

@@ -132,38 +132,74 @@ def fingerprint(replay, player):
     }
 
 
-def analyse_replays():
-    ours, theirs, results = [], [], []
+def load_replays():
+    out = []
     if not os.path.isdir(REPLAYS):
-        return ours, theirs, results
-
+        return out
     for name in sorted(os.listdir(REPLAYS)):
-        if not name.endswith(".json"):
+        if not name.endswith(".json") or name.endswith(".meta.json"):
             continue
-        path = os.path.join(REPLAYS, name)
         try:
-            with open(path, encoding="utf-8") as f:
-                replay = json.load(f)
+            with open(os.path.join(REPLAYS, name), encoding="utf-8") as f:
+                out.append(json.load(f))
         except (OSError, json.JSONDecodeError):
             continue
-        # Which seat were we? The metadata sidecar records it; default to 0.
-        meta_path = path.replace(".json", ".meta.json")
-        seat = 0
-        if os.path.exists(meta_path):
-            try:
-                with open(meta_path, encoding="utf-8") as f:
-                    seat = json.load(f).get("seat", 0)
-            except (OSError, json.JSONDecodeError):
-                pass
+    return out
+
+
+def our_team_name(replays):
+    """The team appearing in every replay is us -- no configuration needed."""
+    common = None
+    for r in replays:
+        names = set((r.get("info") or {}).get("TeamNames") or [])
+        common = names if common is None else (common & names)
+    if common and len(common) == 1:
+        return next(iter(common))
+    return None
+
+
+def analyse_replays():
+    """Attribute seats properly and drop self-play.
+
+    Seats are assigned per episode, so assuming we are always player 0 silently
+    swaps us with the opponent in half the games -- which showed up as our farm
+    apparently running 21 melon tiles when the agent never plants more than 8.
+    `info.TeamNames` carries the real mapping.
+
+    It also identifies the validation episode, where both seats are us. That is
+    a self-play smoke test, not a match, and counting it corrupts both the win
+    rate and the picture of what opponents do.
+    """
+    ours, theirs, results, skipped = [], [], [], 0
+    replays = load_replays()
+    me = our_team_name(replays)
+
+    for replay in replays:
+        names = (replay.get("info") or {}).get("TeamNames") or []
+        if len(names) != 2:
+            continue
+        if me is None or names[0] == names[1]:
+            skipped += 1                      # validation self-play
+            continue
+        seat = 0 if names[0] == me else 1
+        if names[seat] != me:
+            skipped += 1
+            continue
+
         us = fingerprint(replay, seat)
         them = fingerprint(replay, 1 - seat)
         if not us or not them:
             continue
+        rewards = replay.get("rewards") or []
+        if len(rewards) == 2 and None not in rewards:
+            us["final_money"] = rewards[seat]
+            them["final_money"] = rewards[1 - seat]
+        them["team"] = names[1 - seat]
         ours.append(us)
         theirs.append(them)
         if us["final_money"] is not None and them["final_money"] is not None:
             results.append(1 if us["final_money"] > them["final_money"] else 0)
-    return ours, theirs, results
+    return ours, theirs, results, skipped
 
 
 # --- fetching -------------------------------------------------------------
@@ -216,11 +252,12 @@ def main():
 
     subs, new = ([], 0) if args.no_fetch else fetch()
 
-    ours, theirs, results = analyse_replays()
+    ours, theirs, results, skipped = analyse_replays()
     n = len(results)
     wins = sum(results)
 
-    print(f"\n=== {n} scored episode(s) analysed ===")
+    print(f"\n=== {n} scored episode(s) analysed"
+          f"{f' ({skipped} self-play skipped)' if skipped else ''} ===")
     entry = {"time": stamp, "episodes": n, "wins": wins, "new_replays": new}
 
     if n:
@@ -237,6 +274,17 @@ def main():
               f"   contesting {contest}/{n}")
         print(f"  animals       mean {sum(animals) / n:.1f}   max {max(animals)}")
         print(f"  quadrants     mean {sum(quads) / n:.1f}")
+
+        us_money = [o["final_money"] for o in ours if o["final_money"] is not None]
+        them_money = [t["final_money"] for t in theirs if t["final_money"] is not None]
+        if us_money and them_money:
+            print("\n=== final scores (the bar we are actually clearing) ===")
+            print(f"  us    mean {sum(us_money) / len(us_money):>9,.0f}"
+                  f"   median {sorted(us_money)[len(us_money) // 2]:>9,.0f}")
+            print(f"  them  mean {sum(them_money) / len(them_money):>9,.0f}"
+                  f"   median {sorted(them_money)[len(them_money) // 2]:>9,.0f}")
+            entry["our_money_mean"] = round(sum(us_money) / len(us_money))
+            entry["opp_money_mean"] = round(sum(them_money) / len(them_money))
         entry.update({
             "opp_melon_mean": round(sum(melon) / n, 2),
             "opp_contesting": contest,
