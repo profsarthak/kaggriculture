@@ -113,7 +113,24 @@ class Config:
         self.hire_to_demand = True
         self.tiles_per_hand = 6
         self.min_hands = 6
+        # Per-turn sale caps for shallow-pool products. Empty means dump
+        # everything, which is what we did before measuring this.
+        self.sale_cap = {}
+        # Crops worth spending fertilizer on. Empty -- fertilising melon is a
+        # measured loss (-4,861 as-is; -13,043 if we also harvest a day early,
+        # -57,192 two days early). Fertilizer doubles the bonus only on days the
+        # plant is *also* watered, and the cheapest surviving melon schedule
+        # waters on alternate days early on, so the cap is not actually reached
+        # sooner -- the cost is paid and nothing is saved. Selling it at ~$50 is
+        # better. Kept switchable so the result stays reproducible.
+        self.fertilize_crops = ()
+        self.fert_carry = 3
+        # Harvest day for fertilised crops. 0 keeps the unfertilised schedule.
+        self.fert_harvest_day = 0
         self.__dict__.update(kw)
+        if isinstance(self.sale_cap, (int, float)):
+            # Convenience for sweeping: a scalar caps every shallow product.
+            self.sale_cap = {p: int(self.sale_cap) for p in ("MILK", "WOOL", "CARROT", "TOMATO", "STRAWBERRY")}
 
 
 # --- geometry -------------------------------------------------------------
@@ -263,6 +280,7 @@ PRIORITY = {
     "WATER_URGENT": 95,
     "HARVEST": 80,
     "FETCH": 78,
+    "FETCH_FERT": 73,
     # Measured +967 (20/20) at 90 rather than 75. A structure standing empty is
     # a tile earning nothing and a bought animal idling in the shed, so placing
     # it beats almost anything else on the board.
@@ -271,6 +289,7 @@ PRIORITY = {
     # the harvest it feeds. At its old priority (below PLANT) it fired 3 times
     # in an entire episode.
     "CARE": 72,
+    "FERTILIZE": 71,
     "WATER_BONUS": 70,
     "PLANT": 60,
     "BUILD": 55,
@@ -360,6 +379,15 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
                 (prio("FETCH_WHEAT", cfg), pos, ["PICKUP", "WHEAT", cfg.feed_carry], "FETCH_WHEAT")
             )
 
+    # Fertilizer is produced at the animals and needed at the crops, so it has
+    # to be routed through the shed the same way feed is.
+    if cfg.fertilize_crops and shed.get("FERTILIZER", 0) > 0:
+        for pos in sorted(shed_tiles(size)):
+            tasks.append(
+                (prio("FETCH_FERT", cfg), pos,
+                 ["PICKUP", "FERTILIZER", cfg.fert_carry], "FETCH_FERT")
+            )
+
     for (x, y), role in roles.items():
         tile = tiles[y][x]
 
@@ -389,9 +417,29 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
             crop = tile["crop"]
             info = CROP_INFO.get(crop, CROP_INFO["WHEAT"])
             age = day - tile["planted_day"]
-            if age >= info["harvest_day"] and tile.get("yield_units", 0) > 0:
+            lo_w, hi_w = info["window"]
+            # Fertilising reaches the yield cap sooner, but only pays if we
+            # also harvest sooner -- otherwise the cost is spent and the days
+            # saved are thrown away waiting.
+            harvest_at = info["harvest_day"]
+            if crop in cfg.fertilize_crops and cfg.fert_harvest_day:
+                harvest_at = cfg.fert_harvest_day
+            if age >= harvest_at and tile.get("yield_units", 0) > 0:
                 tasks.append((prio("HARVEST", cfg), (x, y), ["HARVEST"], None))
-            elif not tile.get("watered_today"):
+                continue
+            # Fertilizer doubles the per-day watering bonus for three days, so a
+            # melon reaches its cap of 6 at age 8 instead of 10 -- two days off
+            # an 11-day cycle. We produce fertilizer free from the animals and
+            # were selling all of it at ~$50/unit while a melon tile earns far
+            # more than that from the days saved.
+            if (
+                cfg.fertilize_crops
+                and crop in cfg.fertilize_crops
+                and lo_w <= age <= hi_w
+                and tile.get("fertilized_until_day", -1) < day
+            ):
+                tasks.append((prio("FERTILIZE", cfg), (x, y), ["FERTILIZE"], "FERTILIZER"))
+            if not tile.get("watered_today"):
                 # Two consecutive misses turns it into a weed.
                 urgent = tile.get("consecutive_unwatered", 0) >= 1
                 lo, hi = info["window"]
@@ -432,7 +480,8 @@ PREEMPT_ABOVE = 90
 
 
 def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
-           cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True):
+           cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True,
+           carried_fert=None, fert_carry=3):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -444,6 +493,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     taken = set()
     seeds = dict(seeds)
     wheat = list(carried_wheat)
+    fert = list(carried_fert) if carried_fert else [0] * len(units)
     animals = [dict(a) for a in carried_animals]
     in_shed = dict(shed_animals)
     commitments = commitments if commitments is not None else {}
@@ -465,6 +515,10 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             return False
         if need == "FEED" and wheat[i] <= 0:
             return False           # no feed on this worker
+        if need == "FERTILIZER" and fert[i] <= 0:
+            return False           # no fertilizer on this worker
+        if need == "FETCH_FERT" and fert[i] > 0:
+            return False           # already carrying some
         if need and need.startswith("PLACE_"):
             if animals[i].get(need[6:], 0) <= 0:
                 return False       # not carrying this animal
@@ -481,7 +535,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             if seeds.get(need, 0) <= 0:
                 return None
             seeds[need] -= 1
-        elif need and need.startswith("FETCH_") and need != "FETCH_WHEAT":
+        elif need and need.startswith("FETCH_") and need not in ("FETCH_WHEAT", "FETCH_FERT"):
             animal = need[6:]
             if in_shed.get(animal, 0) <= 0:
                 return None
@@ -501,6 +555,10 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             wheat[worker] -= 1
         elif need == "FETCH_WHEAT":
             wheat[worker] += cfg_feed_carry
+        elif need == "FERTILIZER":
+            fert[worker] -= 1
+        elif need == "FETCH_FERT":
+            fert[worker] += fert_carry
         elif need and need.startswith("PLACE_"):
             animal = need[6:]
             animals[worker][animal] = animals[worker].get(animal, 0) - 1
@@ -644,8 +702,16 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     for item in shed:
         if item in ("WHEAT", "MELON") or item in ANIMAL_INFO:
             continue                      # handled separately / not sellable
-        if shed.get(item, 0) > 0:
-            orders.append(["SELL", item, shed[item]])
+        held = shed.get(item, 0)
+        if held <= 0:
+            continue
+        # Shallow pools reward metering. A1 measured milk floored after 76
+        # units and wool after 59, against town demand that drains ~20-26/day:
+        # dumping a stockpile walks the price to $1, whereas selling at the
+        # drain rate holds it near base indefinitely. Deep pools (egg,
+        # fertilizer) have no such cliff, so they are dumped.
+        cap = cfg.sale_cap.get(item)
+        orders.append(["SELL", item, min(held, cap) if cap else held])
 
     # Keep enough wheat banked to feed every animal for two days.
     feed_reserve = animals_alive * 2
@@ -752,8 +818,11 @@ def make_agent(cfg=None):
             {a: inv.get(a, 0) for a in ANIMAL_INFO if inv.get(a, 0)}
             for inv in inventories
         ]
+        carried_fert = [inv.get("FERTILIZER", 0) for inv in inventories]
         while len(carried) < len(units):
             carried.append(0)
+        while len(carried_fert) < len(units):
+            carried_fert.append(0)
         while len(carried_animals) < len(units):
             carried_animals.append({})
         shed_animals = {a: private["shed"].get(a, 0) for a in ANIMAL_INFO}
@@ -774,7 +843,7 @@ def make_agent(cfg=None):
             private["seeds"], shed_animals, cfg.feed_carry,
             cfg.travel_weight,
             state["commitments"] if cfg.route_commit else {},
-            cfg.finish_tile,
+            cfg.finish_tile, carried_fert, cfg.fert_carry,
         )
 
         return {
