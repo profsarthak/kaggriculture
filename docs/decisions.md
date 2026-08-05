@@ -49,3 +49,32 @@ $120 base.
 
 **Next.** A2 (labour accounting). The binding constraint is still unknown; if it's worker-turns
 rather than market depth, the shallow-pool analysis matters less than it currently appears.
+
+---
+
+## 2026-08-05 — A2: labour accounting; the binding constraint is land
+
+**What.** `analysis/labour.py` derives actions-per-unit for every crop and animal, and compares
+labour capacity against land capacity. Detail in [02-labour.md](02-labour.md).
+
+**Answer to the open question from A1.** **Land binds, not labour** — but only if you hire
+properly. Labour binds below ~10 hands; land binds above. The crossover is at nine or ten
+hands, costing $143/day, which is noise. So: hire to ~10, buy all three expansions ($7,000),
+and the ceiling is ~44 geese on 100 tiles.
+
+**This invalidates the v1 baseline's design.** It hires 8 hands and works 25 tiles — labour
+-saturated on a quarter of the board it could own. Expansion is not a late-game luxury here;
+it is the constraint.
+
+**Correction to how A1's findings should be read.** I added a capacity column, because
+`$/action` alone is actively misleading. Sheep are the best per-action row in the game
+($63.72) and the whole wool pool is 44 sheep-days — one and a half sheep for a season. Melon
+is $92.56 and 26 plants exhaust it. Only wheat and geese have unbounded capacity; everything
+else is a bounded raid, and should be planned as an opening move rather than an engine.
+
+**Also.** Fertilizer's zero-regenerating pool is a 16-animal problem: past ~16 animals,
+`COLLECT_FERTILIZER` is a wasted action and animal economics drop to product-only. The
+$/action figures above include fertilizer and should be re-read without it for larger fleets.
+
+**Next.** A3 (allocation LP). First thing it must settle: grow feed wheat or buy it. Buying
+frees ~1.25 tiles per goose but drains inventory along wheat's steep below-`I0` `sqrt` curve.
