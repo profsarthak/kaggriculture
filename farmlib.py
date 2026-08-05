@@ -37,9 +37,12 @@ class Config:
     """A strategy. Defaults are the Phase A recommendation."""
 
     def __init__(self, **kw):
-        # docs/04-pools.md: equilibrium melon commitment against a contesting
-        # opponent. 11 is the monopolist's answer and floods the pool.
-        self.melon_tiles = 8
+        # A4 put the equilibrium commitment at 8 against a contesting opponent.
+        # Measured: 9 beats 8 by +2,703 (16/16, paired). Do not read that as
+        # "more melon is better" -- the surface is jagged because melon claims
+        # layout budget before coops, so each extra tile can cost a whole coop.
+        # 16 loses by 6,716. See docs/09-ab-testing.md.
+        self.melon_tiles = 9
         # docs/03-allocation.md: animal count at the optimum.
         self.goose_target = 16
         # docs/03-allocation.md predicted 6-9 hands; measured optimum is 8.
