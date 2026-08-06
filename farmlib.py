@@ -186,6 +186,20 @@ class Config:
         # going to -1,549 and -9,773 above).
         self.melon_contest_bonus = 0
         self.melon_concede_threshold = 0
+        # Carry harvested melon to the shed at once rather than waiting for the
+        # end-of-day drop -- REJECTED, kept switchable.
+        #
+        # SELL draws from the shed, so carried melon is unsellable until the
+        # nightly drop: a melon picked at hour 5 sells the *following* morning.
+        # Given A4 prices the first-mover premium at $12,790, buying that day
+        # back looked worthwhile.
+        #
+        # It is not. Mirror margin -1,297 (CI crossing zero, 7/16) and a panel
+        # worst case of -2,499. The PLACE action plus the walk costs about what
+        # the earlier sale earns, and in a mirror both sides gain the day so it
+        # cancels. The premium is about beating the opponent to the *pool*,
+        # which is decided by planting date, not by delivery time.
+        self.run_melon = False
         self.__dict__.update(kw)
         if isinstance(self.sale_cap, (int, float)):
             # Convenience for sweeping: a scalar caps every shallow product.
@@ -404,6 +418,12 @@ PRIORITY = {
     # CARE banks +1 egg/day per goose for one action -- worth about as much as
     # the harvest it feeds. At its old priority (below PLANT) it fired 3 times
     # in an entire episode.
+    # Running harvested melon to the shed so it can be sold today rather than
+    # tomorrow. Only worth interrupting for because melon is the one product
+    # where a day's delay is priced: A4 measured the first-mover premium at
+    # $12,790, and produce otherwise reaches the shed only at the end-of-day
+    # auto-drop, so a melon picked at hour 5 sells on the *following* morning.
+    "RUN_MELON": 82,
     "CARE": 72,
     "FERTILIZE": 71,
     "WATER_BONUS": 70,
@@ -452,7 +472,8 @@ def planting_choice(role, day, cfg):
     return "WHEAT"
 
 
-def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
+def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
+                 carried_melon=0):
     """One task per tile that wants attention, with a priority."""
     tasks = []
     tiles = farm["tiles"]
@@ -494,6 +515,13 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget):
             tasks.append(
                 (prio("FETCH_WHEAT", cfg), pos, ["PICKUP", "WHEAT", cfg.feed_carry], "FETCH_WHEAT")
             )
+
+    # Carried melon cannot be sold -- SELL draws from the shed -- and the
+    # end-of-day drop is a whole day late for the one product where timing is
+    # worth $12,790. Run it in by hand.
+    if cfg.run_melon and carried_melon:
+        for pos in sorted(shed_tiles(size)):
+            tasks.append((prio("RUN_MELON", cfg), pos, ["PLACE", "MELON", 12], "RUN_MELON"))
 
     # Fertilizer is produced at the animals and needed at the crops, so it has
     # to be routed through the shed the same way feed is.
@@ -602,7 +630,7 @@ PREEMPT_ABOVE = 90
 
 def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
            cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True,
-           carried_fert=None, fert_carry=3):
+           carried_fert=None, fert_carry=3, carried_melon_each=None):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -615,6 +643,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     seeds = dict(seeds)
     wheat = list(carried_wheat)
     fert = list(carried_fert) if carried_fert else [0] * len(units)
+    melon_held = list(carried_melon_each) if carried_melon_each else [0] * len(units)
     animals = [dict(a) for a in carried_animals]
     in_shed = dict(shed_animals)
     commitments = commitments if commitments is not None else {}
@@ -636,6 +665,8 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             return False
         if need == "FEED" and wheat[i] <= 0:
             return False           # no feed on this worker
+        if need == "RUN_MELON" and melon_held[i] <= 0:
+            return False           # nothing to run in
         if need == "FERTILIZER" and fert[i] <= 0:
             return False           # no fertilizer on this worker
         if need == "FETCH_FERT" and fert[i] > 0:
@@ -680,6 +711,8 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             fert[worker] -= 1
         elif need == "FETCH_FERT":
             fert[worker] += fert_carry
+        elif need == "RUN_MELON":
+            melon_held[worker] = 0
         elif need and need.startswith("PLACE_"):
             animal = need[6:]
             animals[worker][animal] = animals[worker].get(animal, 0) - 1
@@ -984,7 +1017,12 @@ def make_agent(cfg=None):
         shed_animals = {a: private["shed"].get(a, 0) for a in ANIMAL_INFO}
 
         fert_budget = max(0, cfg.fertilizer_quota)
-        tasks = gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget)
+        melon_each = [inv.get("MELON", 0) for inv in inventories]
+        while len(melon_each) < len(units):
+            melon_each.append(0)
+        tasks = gather_tasks(
+            farm, private, roles, day, cfg, fert_budget, build_budget, sum(melon_each)
+        )
         # Hands are re-hired every morning and land as market orders after the
         # hour-0 actions, so worker indices only mean the same thing within a
         # day and only once the day's hires have arrived. Drop routes whenever
@@ -999,7 +1037,7 @@ def make_agent(cfg=None):
             private["seeds"], shed_animals, cfg.feed_carry,
             cfg.travel_weight,
             state["commitments"] if cfg.route_commit else {},
-            cfg.finish_tile, carried_fert, cfg.fert_carry,
+            cfg.finish_tile, carried_fert, cfg.fert_carry, melon_each,
         )
 
         return {
