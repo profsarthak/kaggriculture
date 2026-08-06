@@ -45,8 +45,34 @@ def build(config_kwargs=None, name="main.py"):
     return out
 
 
+def parse_overrides(spec):
+    kwargs = {}
+    for pair in (spec or "").split(","):
+        key, _, value = pair.partition("=")
+        key, value = key.strip(), value.strip()
+        if not key:
+            continue
+        if value.lower() in ("true", "false"):
+            kwargs[key] = value.lower() == "true"
+        else:
+            try:
+                kwargs[key] = float(value) if "." in value else int(value)
+            except ValueError:
+                kwargs[key] = value
+    return kwargs
+
+
 def main():
-    out = build()
+    import sys
+
+    # `python build.py melon_tiles=20,pasture_target=1` bakes overrides into the
+    # artefact, so an exploration probe can be submitted without editing the
+    # defaults that every other tool reads.
+    overrides = parse_overrides(sys.argv[1]) if len(sys.argv) > 1 else None
+    if overrides:
+        print(f"baking overrides: {overrides}")
+
+    out = build(overrides)
     tar_path = os.path.join(HERE, "submission.tar.gz")
     with tarfile.open(tar_path, "w:gz") as tar:
         tar.add(out, arcname="main.py")

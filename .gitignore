@@ -9,3 +9,4 @@ dist/
 # data/ladder-log.jsonl IS tracked -- it is the record of what we learned when.
 data/replays/
 data/ladder-runs.log
+probe.tar.gz
