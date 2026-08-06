@@ -84,6 +84,133 @@ efficiently workers moved.
 
 Each answer was reasonable given what we knew. Each was wrong until measured.
 
+## The game theory we actually used
+
+Game theory is the study of situations where your best move depends on what someone else does.
+Most of it is about *strategic interaction* — which is exactly the part of this competition that
+isn't just farming efficiently. Here are the ideas we leaned on, what each one bought us, and
+which ones didn't pay.
+
+### 1. Work out what you are actually maximising
+
+The single most useful idea, and the least technical.
+
+The game hands you a score in coins. But the ladder only records **who won** — beat someone by
+one coin or fifty thousand and it counts the same. So the thing to maximise is not "expected
+coins," it is "probability of having more coins than the other player."
+
+Those sound similar and are not. A change that reliably adds 5,000 coins but occasionally loses
+you a close game is *worse* than one that adds 500 coins and never does. We got this wrong in
+our own testing for a long time — measuring average margin when we should have been measuring
+win rate — and it took explicit correction.
+
+The same shape appears one level up. The prizes are flat: **1st through 10th all pay $5,000.**
+So the goal isn't a high rank, it's the *probability of being in the top ten* — a step function
+at position ten. That changes how much risk is correct: below the line, volatility is free;
+above it, volatility is pure downside.
+
+### 2. Zero-sum games are unusually well-behaved
+
+Because only the *difference* in scores matters, this is a **zero-sum game**: my gain is exactly
+your loss.
+
+That is a genuinely convenient property. In general, games can have several equilibria with no
+principled way to choose between them, which makes "just play the equilibrium" naive advice.
+Zero-sum games don't have that problem — there's a single well-defined "safest" strategy (the
+*maximin*: the one whose worst case is least bad), and it's computable by standard methods.
+
+So when we say "the equilibrium," in this game that phrase actually means something specific.
+
+### 3. Common-pool resources
+
+Melon, fertiliser, milk and wool are **common-pool resources**: finite, shared, and depletable.
+Whatever you take is gone for the other player, and vice versa. Fisheries and groundwater are
+the textbook cases.
+
+The signature behaviour is that everyone has a private incentive to take more, and if everyone
+does, the resource is destroyed and everyone ends up worse off. That is precisely what happens
+if both players go heavy on melon — the price collapses to $1 and neither gets anything.
+
+Recognising this is what told us melon was a *race with a ceiling* rather than a good thing to
+maximise.
+
+### 4. Cournot competition
+
+The market's structure — several sellers, a price that falls as total quantity rises — is
+**Cournot competition**, the standard model of firms competing on output rather than price.
+
+The relevant lesson from Cournot is that your optimal output depends on your rival's, and that
+both producing flat-out is bad for both. It's why the answer to "how much melon should we plant"
+was never a fixed number in isolation.
+
+### 5. Best response, and computing an actual equilibrium
+
+For the melon decision we did the real thing. We built a **payoff matrix** — a table of "if I
+plant this much and they plant that much, here's my advantage" — and solved it.
+
+The result: against an opponent planting 8, our best reply was 8. Neither side could do better
+by deviating, which makes it a **Nash equilibrium**. It also showed that conceding melon entirely
+was catastrophic (−$20,702) and over-committing was self-defeating.
+
+This is the one place in the project where we computed a genuine equilibrium rather than
+reasoning qualitatively.
+
+### 6. First-mover advantage
+
+Some games reward moving first, because it constrains what the other player can profitably do.
+
+Here it's stark. Sell melon into an untouched market and you get $26,000; sell into one your
+opponent has already flooded and you get $459. Since melon takes ten days to grow, that
+advantage is claimed on **day one**, before anyone can see what the other is doing.
+
+### 7. Observable actions change the problem
+
+Textbook simultaneous-move games assume you can't see what your opponent chose. Here you *can* —
+their board is public, including what they planted and when.
+
+That matters because it converts "guess the equilibrium" into "look and respond." We verified
+this was genuinely available before building anything on it. As it turned out we never used it
+profitably (see below), but the check was worth doing.
+
+### 8. What we could not do, and what we did instead
+
+We could not compute an equilibrium for the **whole game** — it's far too large, and any claim
+otherwise would be false. The standard substitute is **empirical game-theoretic analysis**:
+instead of solving the real game, you pick a handful of realistic strategies, play them against
+each other many times, and solve the small game that results.
+
+We do a version of this. Every candidate change is tested against a *panel* of deliberately
+different strategies, and adopted only if it beats the **worst** of them — not the average. A
+change that wins on average while losing badly to one particular style is a liability on a
+ladder that matches you against everyone.
+
+### 9. Opportunity cost — why equilibria expire
+
+This is the concept that ended up mattering most, and it's economics rather than game theory
+proper.
+
+An equilibrium isn't just about the opponent. It depends on **what else you could have done with
+the resource**. Our melon answer of 8 tiles was computed when the alternative use of a tile was
+worth about $15 per unit of work. Once cows arrived, that alternative became far more valuable —
+so the same melon tile now costs more, and the right answer dropped to 5.
+
+The game never changed. The **opportunity cost** did. Any equilibrium is a statement about
+trade-offs at a moment in time, and it stops being true when the trade-offs move.
+
+### Which of these actually paid
+
+Honestly: **the payoff-structure thinking (1, 2) and the common-pool analysis (3, 4, 6) were
+worth a great deal.** They redirected the whole strategy and produced the single largest measured
+effect in the game.
+
+**The explicit equilibrium computation (5) was worth less than it looked.** Its answer was
+correct and then expired, and the best-response machinery built on it (7) measured *worse* than
+ignoring the opponent entirely — because by the time we tried it, the opportunity costs it
+assumed no longer held.
+
+**The empirical approach (8) quietly became the workhorse.** It is the least elegant idea here
+and the one we now rely on for every decision.
+
 ## Phase B: building something that plays
 
 The agent works on a simple principle. Each turn it lists every job that wants doing — this
