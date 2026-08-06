@@ -23,6 +23,19 @@ from farmlib import Config
 # Ranges must extend past the current value in both directions, or the search
 # silently reports a "local optimum" that is really the edge of the grid -- the
 # first run capped `pasture_target` at 4 and missed +3,326 at 5.
+FINE_GRID = {
+    "melon_tiles": [4, 5, 6],
+    "labour_headroom": [0.52, 0.55, 0.58],
+    "pasture_target": [6, 7, 8],
+    "hands_target": [8, 9, 10],
+    "feed_carry": [2, 3, 4],
+    "travel_weight": [11.0, 12.0, 13.0, 14.0, 15.0],
+    "tiles_per_hand": [5, 6, 7],
+    "min_hands": [5, 6, 7],
+    "feed_ratio": [1.8, 2.0, 2.2],
+    "risk_shed_margin": [25],
+}
+
 GRID = {
     "melon_tiles": [4, 5, 6, 7, 8, 9, 10, 12],
     "labour_headroom": [0.40, 0.45, 0.50, 0.55, 0.60, 0.65],
@@ -54,10 +67,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=4)
     ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--fine", action="store_true",
+                    help="narrow steps around the current point, for small gains")
     args = ap.parse_args()
 
+    grid = FINE_GRID if args.fine else GRID
+    globals()["GRID"] = grid
+
     base = Config()
-    current = {k: getattr(base, k) for k in GRID}
+    current = {k: getattr(base, k) for k in grid}
     print("starting point:")
     for k, v in current.items():
         print(f"  {k:<18} {v}")
