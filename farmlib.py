@@ -200,7 +200,28 @@ class Config:
         # cancels. The premium is about beating the opponent to the *pool*,
         # which is decided by planting date, not by delivery time.
         self.run_melon = False
+        # Once melon can no longer mature, replant its tiles with something that
+        # can, rather than leaving them bare for the last stretch of the season.
+        # REJECTED: -1,392 (3/16). The farm is labour-bound, not land-bound, so
+        # tiles left bare late in the season are not waste -- working them pulls
+        # workers off the animals, which earn more. Bare land is the cheapest
+        # thing on the board.
+        self.repurpose_melon = False
+        self.repurpose_order = ("CARROT", "WHEAT")
         self.__dict__.update(kw)
+        # A single crop name arrives from the command line as a bare string, and
+        # iterating one yields characters -- `CROP_INFO["W"]` then raises inside
+        # the agent, which the harness reports as a catastrophic score rather
+        # than an error. Normalise it.
+        if isinstance(self.repurpose_order, str):
+            self.repurpose_order = tuple(
+                c.strip() for c in self.repurpose_order.split("|") if c.strip()
+            )
+        if isinstance(self.fertilize_crops, str):
+            self.fertilize_crops = tuple(
+                c.strip() for c in self.fertilize_crops.split("|")
+                if c.strip() and c.strip() in CROP_INFO
+            )
         if isinstance(self.sale_cap, (int, float)):
             # Convenience for sweeping: a scalar caps every shallow product.
             self.sale_cap = {p: int(self.sale_cap) for p in ("MILK", "WOOL", "CARROT", "TOMATO", "STRAWBERRY")}
@@ -459,9 +480,18 @@ def planting_choice(role, day, cfg):
     it is an opening, not a crop plan -- these tiles revert to wheat once the
     flock needs feeding.
     """
-    # MELON tiles are a fixed strategic commitment (A4's contested-pool
-    # equilibrium) and are never repurposed.
+    # Melon tiles are a strategic commitment, but only while melon can still
+    # mature. It needs 10 days, so from roughly day 19 the tile can never
+    # produce again and the static layout leaves it bare for the rest of the
+    # season. Fall back to the fastest crop that still has time to finish.
     if role == "MELON":
+        if not cfg.season_days or day + CROP_INFO["MELON"]["harvest_day"] <= cfg.season_days - 1:
+            return "MELON"
+        if not cfg.repurpose_melon:
+            return "MELON"
+        for crop in cfg.repurpose_order:
+            if day + CROP_INFO[crop]["harvest_day"] <= cfg.season_days - 1:
+                return crop
         return "MELON"
     # Everything else is the general-purpose crop role, which is *named*
     # "WHEAT". Role names and crop names share a namespace, so this cannot be
