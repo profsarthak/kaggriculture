@@ -57,8 +57,36 @@ The reading was wrong. **Measured spend is what a tile *gets*, not what it *need
 labour-constrained: a coop wants four actions a day and is receiving 2.17. Charging it 2.17 tells
 the layout it can afford more animals, which makes the existing under-service worse.
 
-The model's numbers are requirements and are right to be. The 4.20 against 2.17 gap measures how
-far short we fall — it is a diagnostic, not an error to fix.
+The model's numbers are requirements and are right to be.
+
+### ...and the gap is not what I said it was either
+
+I first read the 4.20-vs-2.17 difference as animals receiving half the attention they need, and
+called it the clearest remaining inefficiency. Measuring the animals directly says otherwise:
+
+| | |
+|---|---:|
+| animal-days | 264 |
+| FEED delivered | 262 (99%) |
+| CARE delivered | 273 |
+| COLLECT_FERTILIZER | 254 (96%) |
+| HARVEST | 310 |
+| **actions per animal-day** | **4.16** |
+
+End-of-day shortfalls are 7% unfed, 3% uncared, 3% fertilizer left standing. **Animals are being
+served essentially in full.**
+
+`tilecost.py` averages over *structure* tile-days, and across an episode roughly 45% of those
+have no animal in them — a coop is built days before it is stocked, and counts as a low-cost
+tile until then. The 2.17 is a blend of ~4.16 while occupied and ~0 while empty.
+
+So the real (and much smaller) opportunity is **shortening the gap between building a structure
+and stocking it**, not tending the animals better. Raising `PLACE` priority to 90 was already a
+step in that direction and measured +967.
+
+Recorded at length because the same number supported two different wrong conclusions before the
+direct measurement settled it: prefer measuring the thing you care about over inferring it from
+an aggregate.
 
 ## What is left
 
@@ -69,6 +97,6 @@ Parameter tuning is exhausted; remaining value is structural. Untried:
 2. **Margin-conditioned risk.** The payoff is `sign(M_i − M_j)` and both players' money is
    public, so late-season risk should depend on which side of the line we are on. Never
    implemented, and the hardest of these to operationalise.
-3. **Closing the animal service gap.** Animals get 2.17 of the ~4 actions a day they want. That
-   gap is the single clearest inefficiency left, and unlike every reallocation tried, closing it
-   does not trade one need against another.
+3. **Shortening build-to-stock latency.** Animals themselves are fully served (4.16 actions per
+   animal-day), but ~45% of structure tile-days have no animal in them. Getting coops stocked
+   sooner is worth more than tending them better.
