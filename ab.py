@@ -69,12 +69,55 @@ def compare(cfg_a, cfg_b, n, verbose=False):
         # And the seat effect itself is the part that does NOT cancel.
         seat_effects.append(((a0 - b1) - (a1 - b0)) / 2)
 
-        wins += (1 if a0 > b1 else 0) + (1 if a1 > b0 else 0)
-        games += 2
+        # Count decisive games only. The agent is deterministic, so a change
+        # that does not fire produces an exact tie -- counting those in the
+        # denominator makes a 50/50 change look like a heavy loss.
+        for ours, theirs in ((a0, b1), (a1, b0)):
+            if ours > theirs:
+                wins += 1
+                games += 1
+            elif theirs > ours:
+                games += 1
         if verbose:
             print(f"  seed {seed:>3}: A@0 {a0:>8,.0f}-{b1:<8,.0f}   "
                   f"A@1 {a1:>8,.0f}-{b0:<8,.0f}   margin {margin:>+9,.0f}")
     return margins, seat_effects, wins, games
+
+
+def wilson(wins, n, z=1.96):
+    """Wilson interval -- honest at the small n these comparisons run at."""
+    if n == 0:
+        return 0.0, 0.0, 1.0
+    p = wins / n
+    d = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return p, max(0.0, centre - half), min(1.0, centre + half)
+
+
+def report_winrate(wins, games, label):
+    """Score on win rate rather than mean margin.
+
+    The ladder pays for wins, not coins, so a change that converts heavy losses
+    into narrow ones -- or narrow wins into heavy ones -- is worth nothing and
+    everything respectively, and the margin statistic cannot tell them apart.
+    Anything deliberately trading expected coins for win probability (see
+    `risk_*` in farmlib) has to be judged here instead.
+    """
+    p, lo, hi = wilson(wins, games)
+    print(f"\n=== {label} (win rate) ===")
+    print(f"  wins        {wins}/{games} = {p:.1%}")
+    print(f"  95% CI      [{lo:.1%}, {hi:.1%}]")
+    verdict = "INCONCLUSIVE"
+    if lo > 0.5:
+        verdict = "VARIANT BETTER"
+    elif hi < 0.5:
+        verdict = "VARIANT WORSE"
+    print(f"  verdict: {verdict}")
+    if verdict == "INCONCLUSIVE":
+        need = math.ceil((1.96 / (abs(p - 0.5) or 0.01)) ** 2 * 0.25)
+        print(f"  (an edge this size needs ~{need} games to resolve)")
+    return p
 
 
 def report(margins, seat_effects, wins, games, label):
@@ -188,6 +231,7 @@ def main():
 
     margins, seats, wins, games = compare(cfg_a, cfg_b, args.n, args.verbose)
     report(margins, seats, wins, games, label)
+    report_winrate(wins, games, label)
 
     if args.null:
         print("\n  Any non-zero margin here is pure noise. Use the stdev above as the")

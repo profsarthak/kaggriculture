@@ -151,6 +151,41 @@ class Config:
         # lost getting to it are unrecoverable, whereas a structure is placed
         # once and then tended wherever it stands.
         self.animals_near_shed = False
+        # Margin-conditioned risk -- REJECTED, kept switchable.
+        #
+        # The reasoning is sound: the payoff is sign(M_i - M_j), so once the
+        # safe line loses with near-certainty, expected coins are free to trade
+        # for variance. The lever is simply too weak. Put on the losing side of
+        # a real deficit it went 0/20 both with and without risk, and made the
+        # margin worse (-27,333 -> -29,861): withholding produce swings a few
+        # thousand against a gap of 27,000.
+        #
+        # In mirror testing it is exactly neutral (50% of decisive games at
+        # every setting) because we are rarely meaningfully behind ourselves.
+        # A lever big enough to matter would have to change the whole late-game
+        # plan, not the sell schedule.
+        self.risk_from_day = 0
+        self.risk_behind = 8000
+        self.risk_shed_margin = 25
+        # Best-respond to an opponent who concedes melon -- REJECTED, kept
+        # switchable.
+        #
+        # A4's matrix says playing 11 against an opponent at 0 is worth
+        # +$20,702. Against a genuinely conceding opponent it measures *worse*:
+        # the goose-engine panel member (zero melon) goes from +45,458 to
+        # +31,354 at bonus 3 and +21,389 at bonus 6.
+        #
+        # A4 priced a melon tile against eggs at $14.72/worker-turn. The
+        # alternative is now a cow, and cows are worth far more, so the trade
+        # A4 evaluated no longer exists. The table is not wrong; it is obsolete,
+        # in the same way its equilibrium of 8 tiles is.
+        #
+        # Also note the detection itself is awkward: an opponent's melon count
+        # is legitimately 0 for the first days of every game, so a naive test
+        # fires spuriously before anyone has planted (visible as the mirror
+        # going to -1,549 and -9,773 above).
+        self.melon_contest_bonus = 0
+        self.melon_concede_threshold = 0
         self.__dict__.update(kw)
         if isinstance(self.sale_cap, (int, float)):
             # Convenience for sweeping: a scalar caps every shallow product.
@@ -219,7 +254,34 @@ def animal_for(structure, cfg):
     return "GOOSE" if structure == "COOP" else cfg.pasture_animal
 
 
-def plan_layout(farm, cfg, n_workers):
+def melon_target(farm, cfg, opponent=None):
+    """Melon commitment, optionally best-responding to the opponent's.
+
+    A4 solved the melon sub-game and produced a best-response table; the agent
+    has never used it, playing a fixed number regardless. `verify.py` confirmed
+    the opponent's board -- crop and planted_day -- is public, so the input is
+    there every turn.
+
+    Only the one case A4 shows a large gain is acted on: an opponent who
+    concedes melon entirely leaves the pool uncontested, worth +$20,702 in the
+    matrix. Everything else stays fixed, because the response surface is steep
+    and jagged (`melon_tiles=10` has measured -17,980) and moving along it at
+    runtime risks far more than the adaptation gains.
+    """
+    if not cfg.melon_contest_bonus or opponent is None:
+        return cfg.melon_tiles
+    theirs = sum(
+        1
+        for row in opponent.get("tiles", [])
+        for t in row
+        if isinstance(t, dict) and t.get("kind") == "PLANT" and t.get("crop") == "MELON"
+    )
+    if theirs <= cfg.melon_concede_threshold:
+        return cfg.melon_tiles + cfg.melon_contest_bonus
+    return cfg.melon_tiles
+
+
+def plan_layout(farm, cfg, n_workers, opponent=None):
     """Assign roles to a *compact subset* of unlocked tiles.
 
     A3 found land is not the binding constraint -- labour is. So working every
@@ -276,7 +338,7 @@ def plan_layout(farm, cfg, n_workers):
     # for 9. The flock and its feed absorb the budget constraint instead, and
     # they scale proportionally so one extra melon tile shaves a fraction of a
     # coop rather than dropping a whole one.
-    melon = max(0, min(cfg.melon_tiles, len(tiles)))
+    melon = max(0, min(melon_target(farm, cfg, opponent), len(tiles)))
     remaining = max(0.0, budget - melon * tile_cost("MELON", cfg))
 
     # Pastures are claimed before coops. Milk and wool have far higher base
@@ -747,6 +809,31 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
             orders.append(["HIRE"])
         return orders[:MAX_MARKET_ORDERS]
 
+    # --- margin-conditioned risk ----------------------------------------
+    # The payoff is sign(M_i - M_j), not coins, and both players' money is
+    # public every turn. So when the season is nearly over and we are behind by
+    # more than normal play will close, expected coins are worth trading for
+    # variance: a narrower loss scores exactly the same as a heavy one.
+    #
+    # The lever is withholding produce. Town demand keeps draining market
+    # inventory, so prices recover while we hold, and dumping the lot at the end
+    # can beat selling steadily. It can also lose everything: the shed caps at
+    # 100 items and overflow is discarded silently. That downside is the point --
+    # it is only correct when the safe line loses anyway.
+    holding = False
+    if cfg.risk_from_day and obs["day"] >= cfg.risk_from_day:
+        opponent = obs["farms"][1 - obs["player"]]
+        behind = opponent.get("money", 0) - money
+        last_day = not cfg.season_days or obs["day"] >= cfg.season_days - 1
+        stored = sum(shed.values())
+        holding = (
+            behind > cfg.risk_behind
+            and not last_day
+            and stored < SHED_CAP - cfg.risk_shed_margin
+        )
+    if holding:
+        return orders[:MAX_MARKET_ORDERS]
+
     # Melon sells the instant it lands: the first-mover premium is $12,790 and
     # holding stock is how you lose it (docs/04-pools.md).
     if cfg.dump_melon and shed.get("MELON", 0) > 0:
@@ -854,7 +941,8 @@ def make_agent(cfg=None):
         inventories = private["inventories"]
         # Size the working area to the workforce we expect to have, not to the
         # skeleton crew present before the day's hires land.
-        roles = plan_layout(farm, cfg, max(len(units), cfg.hands_target + 1))
+        opponent = obs['farms'][1 - obs['player']]
+        roles = plan_layout(farm, cfg, max(len(units), cfg.hands_target + 1), opponent)
 
         animals_alive = sum(
             1
