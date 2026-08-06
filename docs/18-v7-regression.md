@@ -58,6 +58,46 @@ one of those products is contested.
   original exactly). It and the diagnostic probe are the tracked pair; v7 has dropped out.
 - v7 is preserved as `submitted/v7` and remains reproducible.
 
+## UPDATE: the hypothesis above is wrong, and so was reading the gap as a signal
+
+Tested it properly by adding a melon-contesting panel member and sweeping our melon against
+opponents holding 0, 5, 9, 12 and 18 tiles:
+
+| opponent melon | ours = 5 | ours = 7 |
+|---:|---:|---:|
+| 0 | **+14,530** | +8,262 |
+| 5 | **0** | −7,645 |
+| 9 | +15,626 | **+18,528** |
+| 12 | +21,562 | **+22,948** |
+| 18 | **+32,146** | +29,593 |
+
+Seven only wins in a narrow band around 9–12. Weighted by the field's observed melon
+distribution, **five comes out ahead** (~16,200 vs ~14,100). Melon concession does not explain
+the loss.
+
+The same argument applied to milk, since v7 also took cows 5 → 7. That fails too: **pasture 7
+beats pasture 5 at every opponent herd size tested** (0, 3, 7, 12), including against twelve cows.
+
+With both allocation hypotheses refuted, and the remaining v7 changes being throughput
+parameters that have transferred before, the honest conclusion is that **the 114-point gap was
+noise.** It was about one standard error at 24 episodes. I said exactly that when reporting it —
+and then built a theory on it anyway, which is the same error documented two days earlier when
+correctly dismissing v5's −18.3 gap.
+
+**A result inside one standard error is not a phenomenon to explain, however satisfying the
+explanation would be.** The reasoning about self-play blindness was sound in the abstract; it
+simply was not what happened here, and there was no signal to attribute to it.
+
+### What the investigation was nonetheless worth
+
+- **The panel now contains an equally-strong melon-contesting opponent.** Every previous member
+  either conceded melon or was weak elsewhere, so the panel really could not price pool
+  concession. That gap was real even though it did not cause this particular result.
+- **Melon 5 is confirmed as the field-weighted optimum**, not a self-play artefact.
+- **Pasture 7 dominates pasture 5** against every herd size.
+- **A4's best-response structure is now measured rather than assumed.** The optimum genuinely
+  moves with the opponent's commitment — it is just much flatter than A4's matrix implied.
+
 ## What should be tested next
 
 The panel needs an opponent that **actually contests melon**. Every current member concedes it,

@@ -168,6 +168,13 @@ def report(margins, seat_effects, wins, games, label):
 # doing (docs/12-goose-target.md): ~10 melon tiles, few animals, 2 quadrants.
 PANEL = {
     "mirror": {},
+    # An opponent that is *equally strong* and takes more melon. Without this
+    # the panel cannot price conceding a contested pool: every other member is
+    # weak elsewhere, so our margin against them is dominated by that weakness
+    # rather than by the melon contest, and the mirror concedes in lockstep with
+    # us. That blind spot is what let v7 cut melon 7 -> 5, measure +7,170, and
+    # lose 114 rating (docs/18-v7-regression.md).
+    "melon-contest": {"melon_tiles": 12},
     "no-cows": {"pasture_target": 0},
     "field-like": {"melon_tiles": 11, "pasture_target": 0, "goose_target": 6,
                    "land_purchases": 1, "hands_target": 6},
