@@ -200,6 +200,11 @@ class Config:
         # cancels. The premium is about beating the opponent to the *pool*,
         # which is decided by planting date, not by delivery time.
         self.run_melon = False
+        # Final-day sweep: run carried produce into the shed so it can be sold.
+        # There is no end-of-day refresh on the last day, so anything still in
+        # hand is lost -- measured at ~$6,600 a game.
+        self.endgame_sweep = True
+        self.endgame_hour = 8
         # Once melon can no longer mature, replant its tiles with something that
         # can, rather than leaving them bare for the last stretch of the season.
         # REJECTED: -1,392 (3/16). The farm is labour-bound, not land-bound, so
@@ -426,6 +431,12 @@ def plan_layout(farm, cfg, n_workers, opponent=None):
 # Higher runs first. Starvation and weeding are irreversible, so they outrank
 # everything that merely earns money.
 PRIORITY = {
+    # Getting carried produce into the shed before the season ends. There is no
+    # end-of-day refresh on the final day, so anything still in a worker's hands
+    # is simply lost -- measured at ~23 wheat, 15 fertilizer, 10 eggs and 15
+    # milk per game, roughly $6,600 at late-season prices. Outranks everything:
+    # on the last afternoon nothing else earns.
+    "ENDGAME": 120,
     "FEED": 100,
     "FETCH_WHEAT": 97,
     "WATER_URGENT": 95,
@@ -503,7 +514,7 @@ def planting_choice(role, day, cfg):
 
 
 def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
-                 carried_melon=0):
+                 carried_melon=0, carried_any=0, hour=0):
     """One task per tile that wants attention, with a priority."""
     tasks = []
     tiles = farm["tiles"]
@@ -545,6 +556,16 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
             tasks.append(
                 (prio("FETCH_WHEAT", cfg), pos, ["PICKUP", "WHEAT", cfg.feed_carry], "FETCH_WHEAT")
             )
+
+    # Final-day sweep. `DROP` empties the whole inventory in one action, and
+    # discards only what exceeds shedCapacity -- the shed holds a handful of
+    # items by this point, so nothing is at risk. Feed carried at this stage is
+    # worthless anyway: there is no refresh left to feed for.
+    if cfg.endgame_sweep and carried_any and cfg.season_days:
+        last_day = day >= cfg.season_days - 1
+        if last_day and hour >= cfg.endgame_hour:
+            for pos in sorted(shed_tiles(size)):
+                tasks.append((prio("ENDGAME", cfg), pos, ["DROP"], "ENDGAME"))
 
     # Carried melon cannot be sold -- SELL draws from the shed -- and the
     # end-of-day drop is a whole day late for the one product where timing is
@@ -660,7 +681,8 @@ PREEMPT_ABOVE = 90
 
 def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
            cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True,
-           carried_fert=None, fert_carry=3, carried_melon_each=None):
+           carried_fert=None, fert_carry=3, carried_melon_each=None,
+           carried_each_total=None):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -674,6 +696,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     wheat = list(carried_wheat)
     fert = list(carried_fert) if carried_fert else [0] * len(units)
     melon_held = list(carried_melon_each) if carried_melon_each else [0] * len(units)
+    carried_totals = list(carried_each_total) if carried_each_total else [0] * len(units)
     animals = [dict(a) for a in carried_animals]
     in_shed = dict(shed_animals)
     commitments = commitments if commitments is not None else {}
@@ -695,6 +718,8 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
             return False
         if need == "FEED" and wheat[i] <= 0:
             return False           # no feed on this worker
+        if need == "ENDGAME" and carried_totals[i] <= 0:
+            return False           # empty-handed, nothing to run in
         if need == "RUN_MELON" and melon_held[i] <= 0:
             return False           # nothing to run in
         if need == "FERTILIZER" and fert[i] <= 0:
@@ -1050,8 +1075,12 @@ def make_agent(cfg=None):
         melon_each = [inv.get("MELON", 0) for inv in inventories]
         while len(melon_each) < len(units):
             melon_each.append(0)
+        carried_any = sum(
+            v for inv in inventories for k, v in inv.items() if k not in ANIMAL_INFO
+        )
         tasks = gather_tasks(
-            farm, private, roles, day, cfg, fert_budget, build_budget, sum(melon_each)
+            farm, private, roles, day, cfg, fert_budget, build_budget,
+            sum(melon_each), carried_any, hour,
         )
         # Hands are re-hired every morning and land as market orders after the
         # hour-0 actions, so worker indices only mean the same thing within a
@@ -1068,6 +1097,8 @@ def make_agent(cfg=None):
             cfg.travel_weight,
             state["commitments"] if cfg.route_commit else {},
             cfg.finish_tile, carried_fert, cfg.fert_carry, melon_each,
+            [sum(v for k, v in inv.items() if k not in ANIMAL_INFO)
+             for inv in inventories],
         )
 
         return {
