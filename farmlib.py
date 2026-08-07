@@ -205,6 +205,23 @@ class Config:
         # hand is lost -- measured at ~$6,600 a game.
         self.endgame_sweep = True
         self.endgame_hour = 8
+        # Only issue shed operations from shed tiles we have actually unlocked.
+        #
+        # The mechanic is real and confirmed in the interpreter: line 323 returns
+        # early when the worker's tile is "LOCKED", *before* DROP/PICKUP/PLACE
+        # are handled. Measured 199 of 394 shed operations in one episode -- 50.5%
+        # -- issued from locked tiles and silently doing nothing.
+        #
+        # Filtering them out nonetheless does not help: -2,153 over 32 games with
+        # the interval crossing zero. Restricting to unlocked tiles collapses the
+        # four parallel fetch points to one early on, since only one worker is
+        # assigned per tile per turn, and the lost parallelism cancels the saved
+        # walking.
+        #
+        # Left off, but the underlying waste is real and a better fix probably
+        # exists: allow several workers to fetch from the same unlocked shed tile
+        # in one turn, which would keep the parallelism without the dead trips.
+        self.shed_lock_aware = False
         # Once melon can no longer mature, replant its tiles with something that
         # can, rather than leaving them bare for the last stretch of the season.
         # REJECTED: -1,392 (3/16). The farm is labour-bound, not land-bound, so
@@ -242,6 +259,28 @@ def quadrant_of(x, y, size):
 def shed_tiles(size):
     half = size // 2
     return {(half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half)}
+
+
+def usable_shed_tiles(farm, cfg=None):
+    """Shed-adjacent tiles we can actually act from.
+
+    The four centre tiles sit one in each quadrant, so three of them are locked
+    at the start and stay locked until bought. `_apply_unit_action` returns
+    early on a locked tile, so PICKUP, DROP and PLACE issued there do nothing
+    at all -- no error, no warning, the turn is simply spent.
+
+    Measured before this filter existed: 199 of 394 shed operations in a single
+    episode, 50.5%, were issued from locked tiles and silently failed. Workers
+    were walking to dead drop points and back.
+    """
+    size = len(farm["tiles"])
+    if cfg is not None and not getattr(cfg, "shed_lock_aware", True):
+        return shed_tiles(size)
+    unlocked = set(farm.get("unlocked_quadrants") or [])
+    return {
+        pos for pos in shed_tiles(size)
+        if quadrant_of(pos[0], pos[1], size) in unlocked
+    }
 
 
 def step_toward(x, y, tx, ty):
@@ -531,7 +570,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
         if isinstance(tile, dict) and tile.get("kind") in empty and tile.get("animal") is None:
             empty[tile["kind"]] += 1
 
-    slots = sorted(shed_tiles(size))
+    slots = sorted(usable_shed_tiles(farm, cfg))
     for structure, count in empty.items():
         animal = animal_for(structure, cfg)
         fetchable = min(count, shed.get(animal, 0))
@@ -552,7 +591,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
         if isinstance(t, dict) and t.get("animal")
     )
     if animals and shed.get("WHEAT", 0) > 0:
-        for pos in sorted(shed_tiles(size)):
+        for pos in sorted(usable_shed_tiles(farm, cfg)):
             tasks.append(
                 (prio("FETCH_WHEAT", cfg), pos, ["PICKUP", "WHEAT", cfg.feed_carry], "FETCH_WHEAT")
             )
@@ -564,20 +603,20 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
     if cfg.endgame_sweep and carried_any and cfg.season_days:
         last_day = day >= cfg.season_days - 1
         if last_day and hour >= cfg.endgame_hour:
-            for pos in sorted(shed_tiles(size)):
+            for pos in sorted(usable_shed_tiles(farm, cfg)):
                 tasks.append((prio("ENDGAME", cfg), pos, ["DROP"], "ENDGAME"))
 
     # Carried melon cannot be sold -- SELL draws from the shed -- and the
     # end-of-day drop is a whole day late for the one product where timing is
     # worth $12,790. Run it in by hand.
     if cfg.run_melon and carried_melon:
-        for pos in sorted(shed_tiles(size)):
+        for pos in sorted(usable_shed_tiles(farm, cfg)):
             tasks.append((prio("RUN_MELON", cfg), pos, ["PLACE", "MELON", 12], "RUN_MELON"))
 
     # Fertilizer is produced at the animals and needed at the crops, so it has
     # to be routed through the shed the same way feed is.
     if cfg.fertilize_crops and shed.get("FERTILIZER", 0) > 0:
-        for pos in sorted(shed_tiles(size)):
+        for pos in sorted(usable_shed_tiles(farm, cfg)):
             tasks.append(
                 (prio("FETCH_FERT", cfg), pos,
                  ["PICKUP", "FERTILIZER", cfg.fert_carry], "FETCH_FERT")
