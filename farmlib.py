@@ -45,12 +45,15 @@ class Config:
         # improvement to the animals makes the marginal melon tile worse. Not a
         # smooth knob -- see docs/09-ab-testing.md.
         self.melon_tiles = 5
-        # Coop quota. Was 16 for most of the project on docs/03-allocation.md's
-        # animal count -- but until `layout_pinned` landed this knob was inert
-        # (decisions.md listed it among "three inert knobs"), because the layout
-        # drift overrode it. With the quota authoritative, the split that
-        # measures best is cow-heavy: 3 coops against 14 pastures, +3,305
-        # (26/36) over the drifting build. See docs/22-layout-drift.md.
+        # Coop quota, and STILL INERT -- 3, 8, 16 and 24 all produce a
+        # byte-identical season (analysis/knobs.py). `pasture_target = 14`
+        # exhausts the layout budget, so `coops = remaining // per_coop` and this
+        # number never binds. It was inert before `layout_pinned` because the
+        # drift overrode it, and it is inert after for a different reason.
+        #
+        # Kept at 3 to describe intent, but the adopted gain belongs to
+        # `layout_pinned` and `pasture_target`, not to this. Only meaningful if
+        # `pasture_target` drops far enough to leave budget over.
         self.goose_target = 3
         # docs/03-allocation.md predicted 6-9; measured 8 for most of the
         # project and 9 once the flock grew. Hire cost is Fibonacci and charged

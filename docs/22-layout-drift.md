@@ -115,3 +115,22 @@ Two things stand independently of the +3,305:
 2. **Any future work on layout has to fix this first.** A planner that re-derives roles from a
    blank board each turn, on a board whose tile ordering changes under it, cannot express a
    deliberate strategy. That matters more for architecture work than for tuning.
+
+## Correction: `goose_target` is not part of the gain
+
+Written after the fact, from `analysis/knobs.py`.
+
+The adopted config was described above and in v12's submission note as "14 pastures / 3 coops",
+as though the split were the tuned result. **The 3 does nothing.** At `pasture_target = 14` the
+layout budget is exhausted by the pastures, so the coop count falls out of
+`coops = remaining // per_coop` and `goose_target` never binds — verified byte-identical seasons
+at 3, 8, 16 and 24.
+
+The +3,305 is real: the A/B compared the whole config against the whole old config. But it is
+attributable to **`layout_pinned` plus `pasture_target = 14`**, and `goose_target` is along for
+the ride. It stays at 3 to describe intent, and it only becomes a real knob again if
+`pasture_target` drops far enough to leave budget over.
+
+Worth noting what this means about the knob itself: it was inert *before* the fix because the
+drift overrode it, and it is inert *after* for an entirely different reason. Two separate causes,
+same symptom, and the tuner would have reported the same flat sweep for both.
