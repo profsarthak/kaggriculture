@@ -125,6 +125,15 @@ class Config:
         # builds run a mix and no geese at all (docs/23-what-beats-us.md); this
         # is the largest difference between them and us that we can express.
         self.sheep_target = 0
+        # Buy seed for tiles that can be sown now, not for every tile carrying a
+        # crop role. See market_orders.
+        self.seed_to_demand = False
+        # Do not buy land before this day. The five strongest opponents on our
+        # ladder all spend their opening 3,000 on livestock -- 4 animals and 6
+        # structures by day 2, with 23 coins left -- and buy their first
+        # quadrant around day 8 out of animal income. We do the reverse: land on
+        # day 0, first animal on day 5. docs/24-the-opening.md.
+        self.land_from_day = 0
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.
         self.feed_ratio = 2.0
@@ -1119,9 +1128,29 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     # Seed buying. Melon first -- it is time-critical and the season only fits
     # two cycles.
     wanted = {}
-    for role in roles.values():
-        crop = planting_choice(role, obs["day"], cfg)
-        wanted[crop] = wanted.get(crop, 0) + 1
+    if cfg.seed_to_demand:
+        # Count tiles that can actually be sown right now, not every tile
+        # carrying the role. A planted melon tile keeps its MELON role all
+        # season, so the original count never fell: we bought 5 seeds, planted
+        # them, saw the seed store empty and bought 5 more, which then sat
+        # unplanted for the rest of the game. Measured 10 melon seeds bought for
+        # 5 tiles -- 400 coins, spent on day 0, in the window where capital
+        # decides how fast the herd starts (docs/24-the-opening.md).
+        for (x, y), role in roles.items():
+            if farm["tiles"][y][x] is not None:
+                continue
+            crop = planting_choice(role, obs["day"], cfg)
+            if crop not in CROP_INFO:
+                continue
+            if cfg.season_days:
+                matures = obs["day"] + CROP_INFO[crop]["harvest_day"] <= cfg.season_days - 1
+                if not matures:
+                    continue
+            wanted[crop] = wanted.get(crop, 0) + 1
+    else:
+        for role in roles.values():
+            crop = planting_choice(role, obs["day"], cfg)
+            wanted[crop] = wanted.get(crop, 0) + 1
     for crop in ("MELON", "CARROT", "WHEAT"):
         if crop not in wanted:
             continue
@@ -1165,7 +1194,7 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
 
     # Expansion. Two quadrants only (docs/03-allocation.md).
     bought = len(farm["unlocked_quadrants"]) - 1
-    if bought < cfg.land_purchases:
+    if bought < cfg.land_purchases and obs["day"] >= cfg.land_from_day:
         price = LAND_PRICES[bought]
         # Land bought too late is pure waste: with the planting cutoff above,
         # its tiles never even get sown.

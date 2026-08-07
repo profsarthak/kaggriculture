@@ -114,3 +114,19 @@ volume neither pool floods, so diversification buys nothing. Kept behind `sheep_
 
 Re-tested after `layout_pinned` because the original tuning ran against a layout that ignored the
 quotas. It survives: `hands_target=12` −3,726 (2/16), `labour_headroom=0.45` −3,034 (2/16).
+
+## The field's opening — every version of it loses
+
+The five strongest opponents spend their whole opening balance on livestock inside two days (4
+animals, 6 structures, 23 coins left at day 2) and buy their first quadrant around day 8. We buy
+land at hour 1 of day 0 and our first animal on day 5.
+
+- **`seed_to_demand`** (+239, 7/16, inconclusive). Real bug: `wanted` counted tiles carrying a crop
+  role rather than tiles that could be sown, so we bought 10 melon seeds for 5 tiles. 400 coins on
+  day 0, and worth nothing measurable.
+- **`land_from_day=8`** — **−52,005, 0/16.** One quadrant is 25 tiles; our layout wants 47. The
+  wheat gets cut and 22 animals starve (animal-days 460 → 264, fed 98% → 80%).
+- **`buy_feed` + `land_from_day=8`** — −32,300, 0/16. The coherent version of their build, since
+  theirs survives on one quadrant only by not growing feed. Still loses.
+
+Both flags stay switchable and off. See docs/24-the-opening.md.
