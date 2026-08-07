@@ -54,7 +54,7 @@ numbers are the structure cap biting, not a verdict on herd composition, and wou
 badly misleading if I had reported them as one. Under `layout_pinned` the cap is now the sum of
 the two quotas.
 
-## Fixing it makes the agent worse
+## Fixing it *at the configured quota* makes the agent worse
 
 `layout_pinned` counts structures that already exist against the quota. It does exactly what it
 should — the farm finishes with 7 pastures and 9 coops, matching the plan for the first time.
@@ -104,13 +104,14 @@ Confirmation, 18 seeds both ways: **+3,305, 95% CI [+1,122, +5,488], 26/36 = 72%
 Combined mirror evidence: **47/64 = 73%.** Adopted as the default:
 `layout_pinned = True`, `pasture_target = 14`, `goose_target = 3`. Submitted as v12.
 
-## What this means regardless of the A/B
+## What this means beyond the gain
 
-Two things stand whatever the final measurement says:
+Two things stand independently of the +3,305:
 
-1. **`pasture_target` and `goose_target` are not trustworthy knobs in the current build**, and any
-   sweep over them — including the four tuner passes already run — was measuring a mechanism that
-   partly ignored them.
+1. **`pasture_target` and `goose_target` were not trustworthy knobs before this**, and any sweep
+   over them — including the four tuner passes already run — was measuring a mechanism that partly
+   ignored them. Anything else those passes concluded about the herd should be treated as
+   unverified.
 2. **Any future work on layout has to fix this first.** A planner that re-derives roles from a
    blank board each turn, on a board whose tile ordering changes under it, cannot express a
    deliberate strategy. That matters more for architecture work than for tuning.
