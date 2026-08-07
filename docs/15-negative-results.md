@@ -130,3 +130,15 @@ land at hour 1 of day 0 and our first animal on day 5.
   theirs survives on one quadrant only by not growing feed. Still loses.
 
 Both flags stay switchable and off. See docs/24-the-opening.md.
+
+## Herd composition — both directions lose head-to-head
+
+Prompted by discovering that milk floods on seeds where the milk shops unlock late.
+
+- **Restrain** (12 pastures + 4 coops, trading cows for a second pool): **−9,160, 0/24.**
+- **Expand** (14 pastures + 4 coops, keeping the cows): **−4,022, 2/24.**
+- **Expand** (18 pastures + 5 sheep): +577, 8/20, inconclusive — `pasture_target` clamps to the
+  labour budget above 14.
+
+A 3-seed *mirror* screen said restraint was clearly better (79,496 against 72,934). It is not: the
+mirror only samples the diagonal of a prisoner's dilemma. See docs/26-common-pool.md.
