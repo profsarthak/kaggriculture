@@ -77,7 +77,29 @@ further ground. That is a plausible cause and I have not established it; recorde
 
 ## Verdict
 
-<!-- A/B result for layout_pinned=true,pasture_target=14,goose_target=3 goes here -->
+`layout_pinned=true, pasture_target=14, goose_target=3` — pin the quotas, then set them to what
+the drift had been accidentally discovering, and a little further.
+
+Paired mirror A/B, 6 seeds both ways: **10/12 = 83%**, variant better.
+
+Panel, 8 seeds against each archetype:
+
+| opponent | margin | 95% CI | wins |
+|---|---:|---|---:|
+| **mirror** | **+2,708** | [+68, +5,347] | 11/16 |
+| melon-contest | +38,398 | [+35,927, +40,870] | 16/16 |
+| no-cows | +47,288 | [+45,106, +49,470] | 16/16 |
+| field-like | +52,572 | [+48,821, +56,324] | 16/16 |
+| melon-rush | +55,878 | [+50,912, +60,844] | 16/16 |
+| goose-engine | +51,907 | [+47,492, +56,321] | 16/16 |
+| | **average +41,458** | | **worst case +2,708** |
+
+Beats every panel member. The panel margins against the weaker archetypes are large but not very
+informative — those are our own discarded builds. **The mirror is the number that matters, and it
+is +2,708 with a lower bound of +68.** That clears zero by the project's adoption rule and not by
+much, so it is being confirmed on a larger mirror sample before the defaults change.
+
+Combined mirror evidence so far: 21/28 = 75%.
 
 ## What this means regardless of the A/B
 
