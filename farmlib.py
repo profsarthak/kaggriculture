@@ -160,6 +160,13 @@ class Config:
         # And always sell if the shed is this close to its cap, since the
         # end-of-day refresh discards whatever does not fit.
         self.price_floor_shed_margin = 30
+        # How many hours of the morning may be spent hiring. 1 reproduces the
+        # old behaviour, which capped the crew at 10 hands however high
+        # `hands_target` was set.
+        self.hire_hours = 1
+        # Cap the daily hire bill at this fraction of the bank, so the crew
+        # ramps with income instead of sitting flat. 0 disables.
+        self.hire_budget_frac = 0.0
         # --- compact animal-first strategy (docs/25-compact-build.md) --------
         # A second strategy, not a tweak. The field's strongest builds work ~34
         # tiles to our ~62 and make nearly twice the money: 15 animals, 11-13
@@ -1160,6 +1167,28 @@ def sell_quantity(item, held, prices, shed_total, day, cfg):
     return held
 
 
+def crew_affordable(money, frac):
+    """Largest crew whose daily hire bill stays inside `frac` of the bank.
+
+    The n-th hire of a day costs fib(n) and the whole crew is re-hired every
+    morning, so a k-hand crew costs fib(k+2)-1 per day: 88 at k=9, 376 at k=12,
+    1,596 at k=15. That is trivial against a late-season bank and ruinous against
+    an early one -- and hiring is charged before the livestock order settles, so
+    an over-large crew eats the herd.
+
+    The strongest opponents ramp: about 5.5 hands through day 6, 10.6 by day 12,
+    14.6 by day 22 (analysis/opponents.py). Ours has been flat at 9.6 from day 6,
+    which is simultaneously too many early and too few late.
+    """
+    budget = money * frac
+    total, cost, nxt, crew = 0, 1, 1, 0
+    while crew < 40 and total + cost <= budget:
+        total += cost
+        cost, nxt = nxt, cost + nxt
+        crew += 1
+    return crew
+
+
 def market_orders(obs, farm, private, roles, cfg, animals_alive):
     orders = []
     money = farm["money"]
@@ -1175,7 +1204,16 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     # day 6, because every plantable tile is already planted and watered and
     # there is no money for more. Paying a full crew to stand around is worst
     # exactly when capital compounds hardest.
-    if hour == 0:
+    # Hiring is spread over the first hours of the day because each HIRE is a
+    # separate market order and only `MAX_MARKET_ORDERS` are read per turn. The
+    # old code built the whole list at hour 0 and then returned
+    # `orders[:MAX_MARKET_ORDERS]`, silently discarding every hire past the
+    # tenth and never trying again -- a self-imposed ceiling of 10 hands plus
+    # the farmer, whatever `hands_target` said. The strongest opponents field
+    # about 15 (analysis/opponents.py). `hires_today` persists through the day
+    # and the n-th hire costs fib(n) whenever it happens, so splitting the
+    # request across turns costs nothing.
+    if hour < cfg.hire_hours:
         want = cfg.hands_target
         if cfg.hire_to_demand:
             workable = 0
@@ -1193,9 +1231,16 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
             # costs fib(n), so a full crew on an empty bank is real money.
             if money < cfg.cash_floor * 4:
                 want = min(want, cfg.min_hands)
-        for _ in range(max(0, want - farm["hires_today"])):
-            orders.append(["HIRE"])
-        return orders[:MAX_MARKET_ORDERS]
+            if cfg.hire_budget_frac:
+                want = max(
+                    cfg.min_hands,
+                    min(want, crew_affordable(money, cfg.hire_budget_frac)),
+                )
+        need = max(0, want - farm["hires_today"])
+        if need:
+            for _ in range(need):
+                orders.append(["HIRE"])
+            return orders[:MAX_MARKET_ORDERS]
 
     # --- margin-conditioned risk ----------------------------------------
     # The payoff is sign(M_i - M_j), not coins, and both players' money is

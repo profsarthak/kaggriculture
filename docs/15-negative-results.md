@@ -176,3 +176,21 @@ screen made it look like the best idea of the project, turning the worst seed fr
 Head-to-head it loses: −8,571 (0/24) at a 1.2 floor, −153 (11/24) at 1.0. Holding while the
 opponent sells hands them the pool. Same wall as the herd result, reached by a different mechanism.
 See docs/26-common-pool.md.
+
+## Crew size — the ceiling was ours, and lifting it does not pay
+
+The top opponents field ~15 workers to our ~9.6 and do 30% more total work, while being *worse* at
+everything we had been tuning: 50.5% moving against our 46.2%, 1.59 actions per tile visit against
+our 1.80. Their advantage is crew size, not execution.
+
+Setting `hands_target` above 10 did nothing because of our own bug: the hour-0 hiring block built
+one `HIRE` per wanted hand and then returned `orders[:MAX_MARKET_ORDERS]`, discarding every hire
+past the tenth and never retrying that day. Fixed by `hire_hours`; the crew now reaches 16.
+
+It does not pay. A k-hand crew costs `fib(k+2)−1` per day, re-charged every morning — 88 at nine,
+1,596 at fifteen — and the extra hands have nothing to do, our idle already being 20.6%. Ramping to
+16 measures **−14,755, 0/20**.
+
+The early half of their pattern (a smaller crew while the bank is thin) measured +971 at 20 games,
++762 on the panel mirror, and **+392, CI [+3, +781], 21/48** at 48 games. Not adopted — the margin
+converges to zero and the win rate is 44%. `hire_budget_frac` and `hire_hours` stay switchable.
