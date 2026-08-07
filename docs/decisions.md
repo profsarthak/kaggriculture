@@ -291,9 +291,27 @@ caught the dead carrot feature (flat −4,175 across every value), the layout bo
 priority). Worth checking for whenever a sweep looks flat.
 
 ### Standing
-v6 submitted (55280289). Self-play 68,826; against real opponents we were at 38,322 versus the
-field's 50,411 on the older builds. **The field is still ahead**, and every panel member runs our
-engine, so the ladder remains the only source of information about genuinely stronger play.
+v12 submitted, plus `goose_target = 0` queued (+4,078, panel worst case +4,078). Rank 1,389 of
+2,748 at rating 695.8 against a field median of 701 — we are the median team, and the prize band
+starts at 3,057.
+
+**The architecture is at its ceiling, and the ceiling is not efficiency.** Three separate attempts
+to convert wasted worker actions into score have failed — `shed_shared` (−15,299), the same change
+inside the compact build (idle 19% → 34%, no score change), and `assign_swap` (+734, 20/48). Idle
+already sits at 14.4%. The agent is not action-limited, so recovering actions buys nothing.
+
+Nor is it a strategy gap that can be imported. Eleven A/Bs have now tried to move this agent toward
+the field's strongest profile — herd composition and mix, feed source, crew size, working area, land
+timing, the opening, and a full compact rebuild. Two worked (`layout_pinned` +3,305,
+`goose_target=0` +4,078); the rest lost, most decisively.
+
+And the herd cannot move in either direction: expanding measures −4,022 and restraining −9,160,
+because the shared pool is a prisoner's dilemma in which flooding strictly dominates
+(docs/26-common-pool.md).
+
+What remains unexplained is throughput per tile: the strongest opponents service 15 animals and 11
+melon tiles on roughly 34 worked tiles where we need 62, and none of the levers we have found
+account for it.
 
 ### Layout drift — the knobs were not connected
 

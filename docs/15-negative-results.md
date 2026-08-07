@@ -142,3 +142,26 @@ Prompted by discovering that milk floods on seeds where the milk shops unlock la
 
 A 3-seed *mirror* screen said restraint was clearly better (79,496 against 72,934). It is not: the
 mirror only samples the diagonal of a prisoner's dilemma. See docs/26-common-pool.md.
+
+## Assignment as a matching — +734, inconclusive (20/48)
+
+Travel is 46.8% of worker turns. `assign_swap` replaces the one-at-a-time greedy pick with a
+matching: workers choose as before, then pairs swap targets wherever that shortens the total walk.
+Since both would do the same job at the same priority, a swap changes only the distance terms.
+
+It works mechanically — moves 3,039 → 2,959, work 2,521 → 2,570 — and does not convert:
+
+| sample | margin | 95% CI | wins |
+|---|---:|---|---:|
+| 12 seeds | +1,639 | [+236, +3,043] | 12/24 |
+| 8 seeds (panel mirror) | +1,362 | [−531, +3,256] | 7/16 |
+| **24 seeds** | **+734** | **[−168, +1,636]** | **20/48** |
+
+The margin shrinks as the sample grows and the win rate sits at 44% pooled over 88 games. Left off.
+
+**This is the third time this pattern has appeared** — after `shed_shared` (−15,299) and the same
+change inside the compact build (idle rose from 19% to 34% with no score change). Recovering wasted
+actions does not help, because **the agent is not action-limited.** Idle already runs at 14.4%.
+
+`travel_weight` re-tested after the layout fix: 20 measures −669, 8 measures +788, both
+inconclusive. The tuned 13 stands.
