@@ -134,6 +134,16 @@ class Config:
         # quadrant around day 8 out of animal income. We do the reverse: land on
         # day 0, first animal on day 5. docs/24-the-opening.md.
         self.land_from_day = 0
+        # Assign idle workers as a matching rather than one at a time, swapping
+        # targets between pairs where that shortens the total walk. Pure travel
+        # improvement: the same jobs get done, by whichever worker is nearer.
+        self.assign_swap = False
+        # Queue livestock ahead of feed and seed. Orders settle in sequence
+        # against one purse, so position is priority, and buying feed used to
+        # outbid buying animals -- which is why `buy_feed` measured -32,625 with
+        # every animal fed and animal-days down from 534 to 328. Separated from
+        # `compact` so the two can be tested apart.
+        self.livestock_first = False
         # --- compact animal-first strategy (docs/25-compact-build.md) --------
         # A second strategy, not a tweak. The field's strongest builds work ~34
         # tiles to our ~62 and make nearly twice the money: 15 animals, 11-13
@@ -866,7 +876,7 @@ PREEMPT_ABOVE = 90
 def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
            cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True,
            carried_fert=None, fert_carry=3, carried_melon_each=None,
-           carried_each_total=None, shared=None):
+           carried_each_total=None, shared=None, cfg_assign_swap=False):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -1033,19 +1043,70 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     # Chosen by proximity to the worker rather than by global rank, so finishing
     # one tile naturally chains into an adjacent one instead of sending the
     # worker back across the farm.
+    if not cfg_assign_swap:
+        for worker in range(len(units)):
+            if actions[worker] is not None:
+                continue
+            upos = units[worker]
+            best, best_score = None, None
+            for prio, pos, op, need in tasks:
+                if blocked(pos) or not feasible(worker, need):
+                    continue
+                score = prio - travel_weight * distance(upos, pos)
+                if best_score is None or score > best_score:
+                    best, best_score = (pos, op, need), score
+            if best:
+                commit(worker, *best)
+        return [a if a else ["PASS"] for a in actions]
+
+    # Same choice of *what* to do, but assigned as a matching rather than
+    # first-come-first-served. Taking each worker in turn strands the later
+    # ones: worker A grabs a tile that worker B was standing next to, and B
+    # walks across the farm for something A could have reached in one step.
+    # Travel is 46% of all worker turns and 85% of it is hops between tiles, at
+    # 1.92 moves per visit against a floor of about 1 (analysis/travel.py).
+    #
+    # Since both workers would do the same job for the same priority, swapping
+    # their targets changes only the distance terms -- this is a pure travel
+    # improvement and cannot reorder the work.
+    picks, claimed = {}, set()
     for worker in range(len(units)):
         if actions[worker] is not None:
             continue
         upos = units[worker]
         best, best_score = None, None
         for prio, pos, op, need in tasks:
-            if blocked(pos) or not feasible(worker, need):
+            if pos in claimed or blocked(pos) or not feasible(worker, need):
                 continue
             score = prio - travel_weight * distance(upos, pos)
             if best_score is None or score > best_score:
-                best, best_score = (pos, op, need), score
+                best, best_score = (prio, pos, op, need), score
         if best:
-            commit(worker, *best)
+            picks[worker] = best
+            if best[1] not in shared:
+                claimed.add(best[1])
+
+    def walk(worker, pick):
+        return distance(units[worker], pick[1])
+
+    for _ in range(len(picks)):                    # 2-opt, converges quickly
+        improved = False
+        for a in list(picks):
+            for b in list(picks):
+                if a >= b:
+                    continue
+                pa, pb = picks[a], picks[b]
+                if not (feasible(a, pb[3]) and feasible(b, pa[3])):
+                    continue
+                if walk(a, pb) + walk(b, pa) < walk(a, pa) + walk(b, pb):
+                    picks[a], picks[b] = pb, pa
+                    improved = True
+        if not improved:
+            break
+
+    for worker, (_prio, pos, op, need) in picks.items():
+        if not blocked(pos):
+            commit(worker, pos, op, need)
 
     return [a if a else ["PASS"] for a in actions]
 
@@ -1220,7 +1281,7 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
                     # sheep before cows already gives the mix its priority. The
                     # agent's `money` over-committing here is pre-existing
                     # behaviour and changing it belongs in its own test.
-                    if cfg.compact:
+                    if cfg.compact or cfg.livestock_first:
                         orders.insert(livestock_at, ["BUY_ANIMAL", animal, n])
                         livestock_at += 1
                     else:
@@ -1351,6 +1412,7 @@ def make_agent(cfg=None):
             [sum(v for k, v in inv.items() if k not in ANIMAL_INFO)
              for inv in inventories],
             usable_shed_tiles(farm, cfg) if cfg.shed_shared else None,
+            cfg.assign_swap,
         )
 
         return {
