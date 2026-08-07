@@ -45,16 +45,18 @@ class Config:
         # improvement to the animals makes the marginal melon tile worse. Not a
         # smooth knob -- see docs/09-ab-testing.md.
         self.melon_tiles = 5
-        # Coop quota, and STILL INERT -- 3, 8, 16 and 24 all produce a
-        # byte-identical season (analysis/knobs.py). `pasture_target = 14`
-        # exhausts the layout budget, so `coops = remaining // per_coop` and this
-        # number never binds. It was inert before `layout_pinned` because the
-        # drift overrode it, and it is inert after for a different reason.
+        # No coops at all. Every value from 3 to 24 produces a byte-identical
+        # season -- `pasture_target = 14` exhausts the layout budget, so the coop
+        # count falls out of the remainder and the quota never binds. Zero is the
+        # one value that does something, and it measures +4,078 (14/16, CI
+        # [+1,766, +6,390]), panel worst case +4,078, beating every member.
         #
-        # Kept at 3 to describe intent, but the adopted gain belongs to
-        # `layout_pinned` and `pasture_target`, not to this. Only meaningful if
-        # `pasture_target` drops far enough to leave budget over.
-        self.goose_target = 3
+        # The trace showed why: we were buying geese we never placed. Three sat
+        # in the shed from day 12 to the end of the season, 900 coins of dead
+        # capital spent in the window where we are broke -- money is down to 710
+        # by day 4. The field agrees: the top 25 opponents average 0.1 geese and
+        # the top 10 average none (docs/23-what-beats-us.md).
+        self.goose_target = 0
         # docs/03-allocation.md predicted 6-9; measured 8 for most of the
         # project and 9 once the flock grew. Hire cost is Fibonacci and charged
         # daily, so this stops paying quickly: 10 has repeatedly measured well
@@ -118,6 +120,11 @@ class Config:
         # and 14 is where it measures best.
         self.pasture_target = 14
         self.pasture_animal = "COW"
+        # How many pastures should hold sheep rather than cows. 0 keeps the
+        # single-animal behaviour the agent had until now. The field's strongest
+        # builds run a mix and no geese at all (docs/23-what-beats-us.md); this
+        # is the largest difference between them and us that we can express.
+        self.sheep_target = 0
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.
         self.feed_ratio = 2.0
@@ -359,6 +366,60 @@ def tile_cost(role, cfg):
 def animal_for(structure, cfg):
     """Which animal belongs on a structure. Coops are geese by definition."""
     return "GOOSE" if structure == "COOP" else cfg.pasture_animal
+
+
+def placed_count(farm, animal):
+    return sum(
+        1
+        for row in farm["tiles"]
+        for t in row
+        if isinstance(t, dict) and t.get("animal") == animal
+    )
+
+
+def animals_wanted(farm, kind, vacancies, cfg):
+    """Which animals should fill `vacancies` empty structures of `kind`.
+
+    A pasture takes a cow or a sheep, and `pasture_animal` could only ever name
+    one of them. The field's strongest builds run both -- the top 25 opponents
+    average 6.6 cows and 4.3 sheep, and the top 10 average 8.1 and 5.8, with no
+    geese at all (docs/23-what-beats-us.md). Sheep reach first yield on day 6
+    against a cow's day 8, and wool's base price is 200 against milk's 160, so
+    the mix is not obviously worse per tile and it splits production across two
+    shallow pools instead of walking one of them down.
+
+    Returns [(animal, count), ...] highest priority first.
+    """
+    if kind == "COOP":
+        return [("GOOSE", vacancies)]
+    if not cfg.sheep_target:
+        return [(cfg.pasture_animal, vacancies)]
+    short = cfg.sheep_target - placed_count(farm, "SHEEP")
+    n_sheep = max(0, min(vacancies, short))
+    out = []
+    if n_sheep:
+        out.append(("SHEEP", n_sheep))
+    if vacancies - n_sheep:
+        out.append((cfg.pasture_animal, vacancies - n_sheep))
+    return out
+
+
+def deliverable(farm, kind, cfg, shed):
+    """The animal to name in a PLACE task for one empty structure of `kind`.
+
+    Prefers what the mix wants, but falls back to whatever is actually in the
+    shed: a task naming an animal we do not hold is one no worker can satisfy,
+    and the structure would stand empty while stock sat in storage.
+    """
+    wanted = [a for a, _ in animals_wanted(farm, kind, 1, cfg)]
+    for animal in wanted:
+        if shed.get(animal, 0) > 0:
+            return animal
+    valid = ("GOOSE",) if kind == "COOP" else ("SHEEP", cfg.pasture_animal)
+    for animal in valid:
+        if shed.get(animal, 0) > 0:
+            return animal
+    return wanted[0] if wanted else animal_for(kind, cfg)
 
 
 def melon_target(farm, cfg, opponent=None):
@@ -622,12 +683,14 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
 
     slots = sorted(usable_shed_tiles(farm, cfg))
     for structure, count in empty.items():
-        animal = animal_for(structure, cfg)
-        fetchable = min(count, shed.get(animal, 0))
-        for pos in slots[:fetchable]:
-            if pos in {t[1] for t in tasks}:
-                continue
-            tasks.append((prio("FETCH", cfg), pos, ["PICKUP", animal, 1], f"FETCH_{animal}"))
+        for animal, want in animals_wanted(farm, structure, count, cfg):
+            fetchable = min(want, shed.get(animal, 0))
+            for pos in slots[:fetchable]:
+                if pos in {t[1] for t in tasks}:
+                    continue
+                tasks.append(
+                    (prio("FETCH", cfg), pos, ["PICKUP", animal, 1], f"FETCH_{animal}")
+                )
 
     # Same problem for feed, and it is the dangerous one: inventories empty into
     # the shed overnight, so every worker starts each day with no wheat and a
@@ -743,7 +806,7 @@ def gather_tasks(farm, private, roles, day, cfg, fert_budget, build_budget,
             if animal is None:
                 # Only worth walking here if some worker is actually carrying
                 # the right animal; `assign` rations that against inventories.
-                want = animal_for(kind, cfg)
+                want = deliverable(farm, kind, cfg, shed)
                 tasks.append((prio("PLACE", cfg), (x, y), ["PLACE", want, 1], f"PLACE_{want}"))
                 continue
             if not tile.get("fed_today"):
@@ -1071,13 +1134,6 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     # and wool are worth far more per unit than eggs and the field barely
     # contests them, but the pools are shallow so the allocation stays small.
     for structure in ("PASTURE", "COOP"):
-        animal = animal_for(structure, cfg)
-        # A cow bought on day 25 never produces -- first yield is 8 days out,
-        # plus a day to build and place. Same reasoning as the planting cutoff.
-        if cfg.season_days:
-            lead = ANIMAL_FIRST_YIELD[animal] + 2
-            if obs["day"] + lead > cfg.season_days - 1:
-                continue
         vacant = sum(
             1
             for (x, y), role in roles.items()
@@ -1086,13 +1142,26 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
             and farm["tiles"][y][x].get("kind") == structure
             and farm["tiles"][y][x].get("animal") is None
         )
-        held = shed.get(animal, 0)
-        if vacant > held and money > 1500:
-            cost = ANIMAL_INFO[animal]["cost"]
-            affordable = int((money - 1200) // cost)
-            n = min(vacant - held, affordable)
-            if n > 0:
-                orders.append(["BUY_ANIMAL", animal, n])
+        for animal, want in animals_wanted(farm, structure, vacant, cfg):
+            # A cow bought on day 25 never produces -- first yield is 8 days out,
+            # plus a day to build and place. Same reasoning as the planting
+            # cutoff. Sheep have a shorter lead, so they stay buyable later.
+            if cfg.season_days:
+                lead = ANIMAL_FIRST_YIELD[animal] + 2
+                if obs["day"] + lead > cfg.season_days - 1:
+                    continue
+            held = shed.get(animal, 0)
+            if want > held and money > 1500:
+                cost = ANIMAL_INFO[animal]["cost"]
+                affordable = int((money - 1200) // cost)
+                n = min(want - held, affordable)
+                if n > 0:
+                    # Deliberately not decremented: the market settles orders in
+                    # sequence and simply stops when money runs out, so listing
+                    # sheep before cows already gives the mix its priority. The
+                    # agent's `money` over-committing here is pre-existing
+                    # behaviour and changing it belongs in its own test.
+                    orders.append(["BUY_ANIMAL", animal, n])
 
     # Expansion. Two quadrants only (docs/03-allocation.md).
     bought = len(farm["unlocked_quadrants"]) - 1

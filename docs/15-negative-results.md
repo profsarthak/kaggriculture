@@ -98,3 +98,19 @@ Prompted by the field profile: the top 25 opponents grow ~5.4 wheat tiles, we gr
   animals.
 
 The herd is capital-bound, not labour-bound. See docs/23-what-beats-us.md.
+
+## Cow/sheep mix — −13,489 (2/16)
+
+The largest structural difference between us and the field: the top 25 opponents average 6.6 cows
+and 4.3 sheep, we ran cows only. `animal_for` returned one animal per structure kind and could not
+express a mix at all, so this needed code — `animals_wanted` and `deliverable` in farmlib.py.
+
+The implementation works (`sheep_target=6` yields 6 sheep and 6 cows) and loses decisively,
+measured against a no-geese baseline so the changes do not confound. A cow yields every 2 days at
+a 160 base, a sheep every 3 days at 200: 80/day against 66.7/day, for 400 against 500. At our
+volume neither pool floods, so diversification buys nothing. Kept behind `sheep_target = 0`.
+
+## More crew, more working area — both worse
+
+Re-tested after `layout_pinned` because the original tuning ran against a layout that ignored the
+quotas. It survives: `hands_target=12` −3,726 (2/16), `labour_headroom=0.45` −3,034 (2/16).

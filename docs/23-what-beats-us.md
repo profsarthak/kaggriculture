@@ -104,6 +104,42 @@ So the 36 wheat tiles are not the disease. They are how we convert surplus labou
 without spending the capital that buys animals. The strong builds get to 14 animals by day 12
 some other way, and finding out how is the open question — not copying their wheat count.
 
+## Acting on it: geese out, sheep rejected
+
+**Dropping geese entirely — adopted, +4,078.** The capital trace showed we were buying geese we
+never placed: three sat in the shed from day 12 to the end of the season, 900 coins of dead
+capital spent in exactly the window where we are broke (money is down to 710 by day 4). Every
+`goose_target` from 3 to 24 gives a byte-identical season, because 14 pastures exhaust the layout
+budget; **zero is the only value that does anything.**
+
+| | |
+|---|---:|
+| mirror | **+4,078**, CI [+1,766, +6,390], 14/16 |
+| panel worst case | **+4,078** — beats every member |
+
+**The cow/sheep mix — rejected, −13,489 (2/16).** Measured against a no-geese baseline so the two
+changes do not confound. The code works: `sheep_target=6` produces 6 sheep and 6 cows. It simply
+loses. A cow yields every 2 days at a 160 base, a sheep every 3 days at 200 — 80/day against
+66.7/day — and the sheep costs 500 against 400. At our production level neither pool floods, so
+there is nothing for diversification to buy.
+
+This is the same lesson as the market-depth correction in docs/20-scouting.md: **the field's
+composition is adapted to a production level we do not have.** Copying it is not the same as
+matching it. The mix stays in the code behind `sheep_target = 0`.
+
+**More crew and more working area both lose:** `hands_target=12` measured −3,726 (2/16) and
+`labour_headroom=0.45` −3,034 (2/16), so the old tuning survives the layout fix.
+
+## Correction: `feed_ratio` is inert in the range that matters
+
+Recorded after `analysis/knobs.py` flagged it. Between 1.25 and 3.0 the parameter changes nothing
+— only 4.0 bites. Lowering the feed reserve frees layout budget, which is immediately spent
+buying the same number of wheat tiles back as surplus, so the two terms compensate exactly.
+
+That qualifies the −26,326 above. It was `feed_ratio=1.25` **with** `max_extra_wheat=0`, and it is
+the second half that does the damage: without the surplus term there is nothing to compensate, so
+wheat really does fall and 24 animals starve. The feed reserve on its own is not a live knob.
+
 ## Open
 
 - **How do they finance 14 animals by day 12?** Roughly 5,600 in livestock plus land, from a 3,000
