@@ -82,3 +82,19 @@ docs/21-mechanic-audit.md.
 Cow count correlates +0.44 with final money, so the herd looked worth pushing. `pasture_target=10`
 measured 7/16 with a per-seed stdev of 978 — inside ±700 of zero. `plan_layout` caps pastures at
 `remaining // per_pasture` and the labour budget binds far below 10, so the knob does nothing.
+
+## Feed strategy — three variants, three different failures
+
+Prompted by the field profile: the top 25 opponents grow ~5.4 wheat tiles, we grow 36.4.
+
+- **`max_extra_wheat=0`** — −544, CI [−2,294, +1,207], 6/16. Inconclusive. Only ~4 tiles are
+  surplus; the rest are feed reserve. Free to drop, but worth nothing.
+- **`feed_ratio=1.25`** (the steady-state break-even) — **−26,326, 0/16.** Instrumented: 24
+  animals starve, only 84% of production days end fed. Wheat arrives in ~5-day batches while
+  animals eat daily, so the theoretical ratio leaves no buffer, and a missed production day
+  destroys the care bonus (docs/21-mechanic-audit.md).
+- **`buy_feed=true`** — **−32,625, 0/16.** The implementation is fine: 100% fed, nothing starves.
+  It loses because animal-days fall 534 → 328. Capital spent on wheat is capital not spent on
+  animals.
+
+The herd is capital-bound, not labour-bound. See docs/23-what-beats-us.md.
