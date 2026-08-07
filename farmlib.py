@@ -230,6 +230,9 @@ class Config:
         # `shed_lock_aware` measure negative on its own. These two only make
         # sense together: filtering without sharing is what scored -2,153.
         self.shed_shared = False
+        # Count structures that already exist against the layout quota instead
+        # of re-planning as if the board were blank. See plan_layout.
+        self.layout_pinned = False
         # Once melon can no longer mature, replant its tiles with something that
         # can, rather than leaving them bare for the last stretch of the season.
         # REJECTED: -1,392 (3/16). The farm is labour-bound, not land-bound, so
@@ -466,7 +469,29 @@ def plan_layout(farm, cfg, n_workers, opponent=None):
     ] if cfg.animals_near_shed else [
         ("MELON", melon), ("PASTURE", pastures), ("COOP", coops), ("WHEAT", wheat),
     ]
-    it = iter(tiles)
+    # A built COOP or PASTURE is permanent -- DIG refuses to remove a stocked
+    # one -- but the plan is recomputed from a blank board every turn, and the
+    # tile ordering shifts whenever a land purchase widens `unlocked`. So the
+    # PASTURE window slides onto fresh ground and a *second* pasture gets built
+    # there while the first still stands. Measured over one season: the window
+    # held 7 tiles at all times but 19 different tiles held the PASTURE role at
+    # some point, 10 of them held the COOP role at another, and the farm
+    # finished with 11 pastures and 5 coops against a quota of 7 and 9.
+    #
+    # Pinning what exists makes the quotas mean what they say. It also makes
+    # `pasture_target` and `goose_target` actually control the herd, which is
+    # why sweeping them has been reading as inert.
+    if cfg.layout_pinned:
+        counts = dict(quota)
+        for (x, y) in tiles:
+            tile = farm["tiles"][y][x]
+            kind = tile.get("kind") if isinstance(tile, dict) else None
+            if kind in ("COOP", "PASTURE"):
+                roles[(x, y)] = kind
+                counts[kind] = counts.get(kind, 0) - 1
+        quota = [(role, max(0, counts.get(role, count))) for role, count in quota]
+
+    it = (t for t in tiles if t not in roles)
     for role, count in quota:
         for _ in range(max(0, count)):
             t = next(it, None)
@@ -1108,7 +1133,14 @@ def make_agent(cfg=None):
             + sum(inv.get("GOOSE", 0) for inv in inventories)
             + int(max(0, farm["money"] - 1200) // ANIMAL_INFO["GOOSE"]["cost"])
         )
-        build_budget = max(0, min(cfg.goose_target, animals_alive + stockable) - structures)
+        # `goose_target` was doing double duty here: the coop quota *and* the cap
+        # on total structures, so lowering it to shift the herd toward cows
+        # silently starved the whole herd instead. Under `layout_pinned` the two
+        # quotas are authoritative, so the cap is their sum.
+        structure_cap = (
+            cfg.pasture_target + cfg.goose_target if cfg.layout_pinned else cfg.goose_target
+        )
+        build_budget = max(0, min(structure_cap, animals_alive + stockable) - structures)
 
         # Feed does not survive the night -- inventories are emptied into the
         # shed at the end-of-day refresh, so a worker that skips the morning
