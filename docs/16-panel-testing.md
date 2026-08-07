@@ -33,6 +33,12 @@ losing badly to one strategy is a liability on a ladder that matches you against
 
 **Average +20,642, worst case +15,792.** Cows beat every strategy we can construct, decisively.
 
+> **Correction (see [19-calibration.md](19-calibration.md)):** the `16·√n` noise model used
+> below is wrong — it describes random-walk drift, not the standard error of an estimate. The
+> empirical figure from our own logged history is that an *unchanged* submission's rating wanders
+> up to 107 points between checks. The conclusion here (that the gap was noise) still holds, and
+> holds more strongly; the arithmetic supporting it does not.
+
 ## So the ladder gap was noise, and I misread it
 
 The offline signal is not narrow, which was the hypothesis. The remaining explanation is sample
