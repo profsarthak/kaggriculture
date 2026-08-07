@@ -134,6 +134,19 @@ class Config:
         # quadrant around day 8 out of animal income. We do the reverse: land on
         # day 0, first animal on day 5. docs/24-the-opening.md.
         self.land_from_day = 0
+        # --- compact animal-first strategy (docs/25-compact-build.md) --------
+        # A second strategy, not a tweak. The field's strongest builds work ~34
+        # tiles to our ~62 and make nearly twice the money: 15 animals, 11-13
+        # melon, 4-7 wheat, feed bought rather than grown. Every attempt to
+        # import one piece of that into our land-and-wheat farm has lost, so
+        # this switches the interacting parts together.
+        self.compact = False
+        # Build this many structures ahead of the cash to stock them, up to
+        # `compact_build_ahead_until`. A structure costs an action, not money.
+        # Going the whole way to the quota built 14 by day 2 against a target of
+        # 5 -- fourteen tiles out of production with nothing to put in them.
+        self.compact_build_ahead = 3
+        self.compact_build_ahead_until = 3
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.
         self.feed_ratio = 2.0
@@ -524,6 +537,16 @@ def plan_layout(farm, cfg, n_workers, opponent=None):
     # a small fixed allocation, not a scaling one (docs/01-market.md).
     per_pasture = tile_cost("PASTURE", cfg) + wheat_per_coop * tile_cost("WHEAT", cfg)
     pastures = max(0, min(cfg.pasture_target, int(remaining // per_pasture) if per_pasture else 0))
+    # The labour budget knows nothing about how much *land* is unlocked, so on a
+    # single quadrant it will happily plan 14 pastures needing 28 wheat tiles to
+    # feed them onto 25 tiles. The wheat is what gets cut, and the herd starves:
+    # measured 22 animals lost, fed dropping 98% -> 80%, when land was delayed
+    # without this cap (docs/24-the-opening.md). Charge each pasture the tiles it
+    # actually occupies -- itself plus its feed -- against the land we hold.
+    if cfg.compact:
+        per_tile = 1 + (wheat_per_coop if not cfg.buy_feed else 0)
+        room = max(0, len(tiles) - melon)
+        pastures = min(pastures, int(room // per_tile) if per_tile else room)
     remaining = max(0.0, remaining - pastures * per_pasture)
 
     per_coop = tile_cost("COOP", cfg) + wheat_per_coop * tile_cost("WHEAT", cfg)
@@ -1118,6 +1141,13 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
     # Keep enough wheat banked to feed every animal for two days.
     feed_reserve = animals_alive * 2
     banked = shed.get("WHEAT", 0)
+    # Orders settle in sequence against one purse, so position is priority. Feed
+    # and seed sit ahead of livestock here, which is how buy_feed measured
+    # -32,625: every animal stayed fed while animal-days fell 534 -> 328, because
+    # the feed order took the money the animal order needed. The compact build
+    # splices livestock in at this point instead of gating feed behind a herd
+    # size -- a gate deadlocks, since the herd cannot grow without being fed.
+    livestock_at = len(orders)
     if cfg.buy_feed:
         short = feed_reserve + animals_alive - banked
         if short > 0 and money > cfg.cash_floor + short * 60:
@@ -1190,7 +1220,11 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
                     # sheep before cows already gives the mix its priority. The
                     # agent's `money` over-committing here is pre-existing
                     # behaviour and changing it belongs in its own test.
-                    orders.append(["BUY_ANIMAL", animal, n])
+                    if cfg.compact:
+                        orders.insert(livestock_at, ["BUY_ANIMAL", animal, n])
+                        livestock_at += 1
+                    else:
+                        orders.append(["BUY_ANIMAL", animal, n])
 
     # Expansion. Two quadrants only (docs/03-allocation.md).
     bought = len(farm["unlocked_quadrants"]) - 1
@@ -1238,13 +1272,29 @@ def make_agent(cfg=None):
             for t in row
             if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE")
         )
-        # Geese we hold or could buy right now bound how many coops are worth
-        # building; anything beyond that stands empty.
+        # Animals we hold or could buy right now bound how many structures are
+        # worth building; anything beyond that stands empty.
+        #
+        # This counted GOOSE only, at the goose's 300, which was a leftover from
+        # when coops were the engine. With `goose_target = 0` we buy no geese at
+        # all, so cows sitting in the shed did not authorise the structures that
+        # would hold them -- the day-12 trace showed 5 animals in storage with
+        # nowhere to go (docs/24-the-opening.md).
+        stock_animal = animal_for("PASTURE", cfg) if cfg.compact else "GOOSE"
+        stock_cost = ANIMAL_INFO[stock_animal]["cost"]
+        reserve = 0 if cfg.compact else 1200
         stockable = (
-            private["shed"].get("GOOSE", 0)
-            + sum(inv.get("GOOSE", 0) for inv in inventories)
-            + int(max(0, farm["money"] - 1200) // ANIMAL_INFO["GOOSE"]["cost"])
+            private["shed"].get(stock_animal, 0)
+            + sum(inv.get(stock_animal, 0) for inv in inventories)
+            + int(max(0, farm["money"] - reserve) // stock_cost)
         )
+        # A structure costs an action, not money, so in the opening there is
+        # nothing to lose by building ahead of the cash to stock it -- and
+        # everything to lose by not being ready. The measured "don't build what
+        # you can't stock" rule still holds for the rest of the season, where an
+        # empty structure really is a tile taken out of production.
+        if cfg.compact and day <= cfg.compact_build_ahead_until:
+            stockable += cfg.compact_build_ahead
         # `goose_target` was doing double duty here: the coop quota *and* the cap
         # on total structures, so lowering it to shift the herd toward cows
         # silently starved the whole herd instead. Under `layout_pinned` the two
