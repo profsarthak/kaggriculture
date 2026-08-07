@@ -33,6 +33,13 @@ ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 LAND_PRICES = [1000, 2000, 4000]
 MAX_MARKET_ORDERS = 10
 SHED_CAP = 100
+# Equilibrium price for each product (MARKET_PARAMS in the interpreter). The
+# observation gives the *current* price every turn; comparing the two is how the
+# agent tells a scarcity premium from a glut.
+BASE_PRICE = {
+    "WHEAT": 25, "CARROT": 35, "TOMATO": 60, "STRAWBERRY": 120, "MELON": 250,
+    "EGG": 50, "MILK": 160, "WOOL": 200, "FERTILIZER": 100,
+}
 
 
 class Config:
@@ -144,6 +151,15 @@ class Config:
         # every animal fed and animal-days down from 534 to 328. Separated from
         # `compact` so the two can be tested apart.
         self.livestock_first = False
+        # Hold produce whose price has fallen below this fraction of its base,
+        # rather than selling into a glut we caused. 0 disables. See
+        # sell_quantity and docs/26-common-pool.md.
+        self.price_floor = 0.0
+        # Always liquidate over the final days -- unsold stock scores nothing.
+        self.price_floor_liquidate = 3
+        # And always sell if the shed is this close to its cap, since the
+        # end-of-day refresh discards whatever does not fit.
+        self.price_floor_shed_margin = 30
         # --- compact animal-first strategy (docs/25-compact-build.md) --------
         # A second strategy, not a tweak. The field's strongest builds work ~34
         # tiles to our ~62 and make nearly twice the money: 15 animals, 11-13
@@ -1113,9 +1129,41 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
 
 # --- market ---------------------------------------------------------------
 
+def sell_quantity(item, held, prices, shed_total, day, cfg):
+    """How much of `item` to sell this turn, given what it currently fetches.
+
+    Selling into a glutted pool is close to giving stock away, and the pool
+    refills on its own: the town drains it every few turns whether we sell or
+    not. Measured on seed 2, where only one of the three milk shops opens early,
+    milk holds 242 at day 18 and then collapses to 131, 76 and 42 as our own
+    cumulative selling outruns the drain -- 249 units for an average of $95.5
+    against $260.5 on a seed where three milk shops opened. That one difference
+    is most of the spread between our best and worst games.
+
+    The interpreter quotes each unit at the inventory standing before it, so the
+    early units already capture the high part of the curve. Waiting therefore
+    recovers price rather than merely deferring the loss.
+
+    Two things override the floor, and both are failure modes we have measured:
+    a full shed discards its overflow at the end-of-day refresh, and stock still
+    held when the season ends scores nothing at all.
+    """
+    if not cfg.price_floor:
+        return held
+    if cfg.season_days and day >= cfg.season_days - cfg.price_floor_liquidate:
+        return held
+    if shed_total >= SHED_CAP - cfg.price_floor_shed_margin:
+        return held
+    base = BASE_PRICE.get(item)
+    if base and prices.get(item, base) < cfg.price_floor * base:
+        return 0
+    return held
+
+
 def market_orders(obs, farm, private, roles, cfg, animals_alive):
     orders = []
     money = farm["money"]
+    prices = obs.get("market", {}).get("prices", {}) or {}
     hour = obs["hour"]
     shed = private["shed"]
 
@@ -1176,8 +1224,11 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
 
     # Melon sells the instant it lands: the first-mover premium is $12,790 and
     # holding stock is how you lose it (docs/04-pools.md).
+    shed_total = sum(shed.values())
     if cfg.dump_melon and shed.get("MELON", 0) > 0:
-        orders.append(["SELL", "MELON", shed["MELON"]])
+        n = sell_quantity("MELON", shed["MELON"], prices, shed_total, obs["day"], cfg)
+        if n > 0:
+            orders.append(["SELL", "MELON", n])
 
     # Sell everything else that lands. This list is derived rather than
     # hardcoded: an unlisted product silently accumulates until the 100-item
@@ -1197,7 +1248,10 @@ def market_orders(obs, farm, private, roles, cfg, animals_alive):
         # drain rate holds it near base indefinitely. Deep pools (egg,
         # fertilizer) have no such cliff, so they are dumped.
         cap = cfg.sale_cap.get(item)
-        orders.append(["SELL", item, min(held, cap) if cap else held])
+        want = min(held, cap) if cap else held
+        want = sell_quantity(item, want, prices, shed_total, obs["day"], cfg)
+        if want > 0:
+            orders.append(["SELL", item, want])
 
     # Keep enough wheat banked to feed every animal for two days.
     feed_reserve = animals_alive * 2

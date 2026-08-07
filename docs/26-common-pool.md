@@ -92,6 +92,39 @@ restrain, because it is dominated.** The remaining gap to the top of the field i
 15 animals and 11 melon tiles on roughly 34 worked tiles where we need 62 — an execution difference
 in the assignment layer, not a strategy difference.
 
+## Withholding supply is dominated too — and by timing, not just quantity
+
+The herd result says producing less is dominated. The natural follow-up is to produce everything
+and *time the sale* instead: hold stock whose price has fallen below its base, and let the town's
+drain lift it before selling. That is not restraint in the usual sense — output is unchanged — and
+the interpreter prices each unit at the inventory standing before it, so waiting genuinely recovers
+price rather than deferring a loss.
+
+Implemented as `price_floor` in `sell_quantity`, with two overrides for failure modes we have
+already measured: always liquidate over the final days, since unsold stock scores nothing, and
+always sell when the shed nears its cap, since the end-of-day refresh discards the overflow.
+
+On a mirror screen it looks like the best idea of the project. Seed 2 — the seed where one milk
+shop opens late and milk collapses to $42 — goes from 45,593 to **69,352**, with milk realising
+$235 instead of $95.5. Across three seeds the mean rises 74,536 → 81,662.
+
+Head-to-head:
+
+| | mirror mean | paired margin | h2h |
+|---|---:|---:|---:|
+| `price_floor = 1.0` | +2,509 | −153 | 11/24 |
+| `price_floor = 1.2` | **+7,126** | **−8,571** | **0/24** |
+
+The same trap, from a completely different direction. Holding stock while the opponent sells hands
+them the pool, and what we held is worth less when we finally sell it.
+
+**The general statement is stronger than the herd result on its own: any form of supply restraint
+loses to an opponent who does not restrain — whether you restrain by producing less or by selling
+later.** Two independent mechanisms, same conclusion, both invisible to mirror self-play.
+
+Worth recording that this doc's own warning did not stop me running the mirror screen first and
+being encouraged by it. It did stop me adopting on it.
+
 ## Why the unlock signal is probably not worth reading after all
 
 `obs["town"]["unlocked_shops"]` is still unread, and it is tempting to adapt the herd to it. The

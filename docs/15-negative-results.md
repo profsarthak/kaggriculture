@@ -165,3 +165,14 @@ actions does not help, because **the agent is not action-limited.** Idle already
 
 `travel_weight` re-tested after the layout fix: 20 measures −669, 8 measures +788, both
 inconclusive. The tuned 13 stands.
+
+## Price-aware selling — −8,571 (0/24) at a 1.2 floor, −153 at 1.0
+
+Hold produce whose price has dropped below a fraction of base, and let the town's drain lift it
+before selling. Output unchanged, so this is not restraint in the usual sense — and the mirror
+screen made it look like the best idea of the project, turning the worst seed from 45,593 into
+69,352 with milk at $235 instead of $95.5.
+
+Head-to-head it loses: −8,571 (0/24) at a 1.2 floor, −153 (11/24) at 1.0. Holding while the
+opponent sells hands them the pool. Same wall as the herd result, reached by a different mechanism.
+See docs/26-common-pool.md.
