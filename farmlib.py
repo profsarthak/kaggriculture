@@ -45,8 +45,13 @@ class Config:
         # improvement to the animals makes the marginal melon tile worse. Not a
         # smooth knob -- see docs/09-ab-testing.md.
         self.melon_tiles = 5
-        # docs/03-allocation.md: animal count at the optimum.
-        self.goose_target = 16
+        # Coop quota. Was 16 for most of the project on docs/03-allocation.md's
+        # animal count -- but until `layout_pinned` landed this knob was inert
+        # (decisions.md listed it among "three inert knobs"), because the layout
+        # drift overrode it. With the quota authoritative, the split that
+        # measures best is cow-heavy: 3 coops against 14 pastures, +3,305
+        # (26/36) over the drifting build. See docs/22-layout-drift.md.
+        self.goose_target = 3
         # docs/03-allocation.md predicted 6-9; measured 8 for most of the
         # project and 9 once the flock grew. Hire cost is Fibonacci and charged
         # daily, so this stops paying quickly: 10 has repeatedly measured well
@@ -104,7 +109,11 @@ class Config:
         # unlocked the town drains ~680 milk a season, so it refills and a bigger
         # herd does not flood it the way the raw number suggests. Cows are now
         # the core of the strategy rather than a side allocation.
-        self.pasture_target = 7
+        # 2 -> 3 -> 5 -> 7 -> 14. The last jump is not a throughput improvement:
+        # the drifting planner was already building 11-12 pastures regardless of
+        # this number, so 7 was never what we played. Pinning made the knob real
+        # and 14 is where it measures best.
+        self.pasture_target = 14
         self.pasture_animal = "COW"
         # Wheat tiles reserved per animal (1.25 is break-even) and a cap on
         # surplus income wheat. Both trade wheat for flock size.
@@ -231,8 +240,10 @@ class Config:
         # sense together: filtering without sharing is what scored -2,153.
         self.shed_shared = False
         # Count structures that already exist against the layout quota instead
-        # of re-planning as if the board were blank. See plan_layout.
-        self.layout_pinned = False
+        # of re-planning as if the board were blank. See plan_layout. Adopted at
+        # +3,305 (26/36, CI [+1,122, +5,488]) together with the 14/3 split;
+        # panel worst case +2,708. docs/22-layout-drift.md.
+        self.layout_pinned = True
         # Once melon can no longer mature, replant its tiles with something that
         # can, rather than leaving them bare for the last stretch of the season.
         # REJECTED: -1,392 (3/16). The farm is labour-bound, not land-bound, so

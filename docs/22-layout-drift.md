@@ -97,9 +97,12 @@ Panel, 8 seeds against each archetype:
 Beats every panel member. The panel margins against the weaker archetypes are large but not very
 informative — those are our own discarded builds. **The mirror is the number that matters, and it
 is +2,708 with a lower bound of +68.** That clears zero by the project's adoption rule and not by
-much, so it is being confirmed on a larger mirror sample before the defaults change.
+much, so it was confirmed on a larger mirror sample before the defaults changed.
 
-Combined mirror evidence so far: 21/28 = 75%.
+Confirmation, 18 seeds both ways: **+3,305, 95% CI [+1,122, +5,488], 26/36 = 72%.**
+
+Combined mirror evidence: **47/64 = 73%.** Adopted as the default:
+`layout_pinned = True`, `pasture_target = 14`, `goose_target = 3`. Submitted as v12.
 
 ## What this means regardless of the A/B
 

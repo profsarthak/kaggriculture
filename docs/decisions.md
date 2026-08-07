@@ -294,3 +294,21 @@ priority). Worth checking for whenever a sweep looks flat.
 v6 submitted (55280289). Self-play 68,826; against real opponents we were at 38,322 versus the
 field's 50,411 on the older builds. **The field is still ahead**, and every panel member runs our
 engine, so the ladder remains the only source of information about genuinely stronger play.
+
+### Layout drift — the knobs were not connected
+
+`plan_layout` recomputed roles from a blank board every turn, on a tile ordering that shifts when
+a land purchase widens `unlocked_quadrants`. The pasture window slid across 19 distinct tiles in
+one season and built 11–12 pastures against a quota of 7, starving the coops. **`pasture_target`
+and `goose_target` have been effectively inert for the whole project** — which is exactly the
+"inert knob" signature already recorded above for `goose_target`, now explained rather than
+filed as a curiosity. Four tuner passes swept them against a mechanism that ignored them.
+
+`layout_pinned` counts existing structures against the quota. Honouring the *configured* 7/9
+scores worse than the drift, because the drift was accidentally building a better farm than the
+one we asked for. Retuned to 14 pastures / 3 coops: **+3,305 (26/36, CI [+1,122, +5,488])**,
+panel worst case +2,708, beats every panel member. Adopted, submitted as v12.
+
+Also fixed: `goose_target` was doubling as the cap on total structures in `build_budget`, so
+lowering it to shift the herd starved the herd instead. Two screens run before I noticed measured
+−26,585 and −41,606 — the cap biting, not a herd-mix verdict.
