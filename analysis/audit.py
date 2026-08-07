@@ -321,6 +321,9 @@ class Instrument:
         self.production_days = 0
         self.production_days_fed = 0
         self.bonus_wiped = 0
+        self.produced = 0
+        self.capped_loss = 0
+        self.harvested = 0
         self.issued = {}
         self.noops = {}
         self.orders_issued = 0
@@ -390,6 +393,10 @@ class Instrument:
                     inst.drop_lost += left - (sum(private["shed"].values()) - before_shed)
             elif op == "FEED" and inv.get("WHEAT", 0) < before_wheat:
                 inst.feeds += 1
+            elif op == "HARVEST":
+                gained = sum(inv.values()) - before_inv
+                if gained > 0:
+                    inst.harvested += gained
             return result
 
         def process_market(state, env):
@@ -446,6 +453,13 @@ class Instrument:
                         inst.production_days_fed += 1
                     elif t.get("pending_care_bonus", 0) > 0:
                         inst.bonus_wiped += t["pending_care_bonus"]
+                    # What this animal is about to earn, and how much of it the
+                    # max_held cap will throw away because nobody harvested.
+                    bonus = t.get("pending_care_bonus", 0) if t["fed_today"] else 0
+                    gain = 1 + bonus
+                    inst.produced += gain
+                    room = max(0, a["max_held"] - t["yield_units"])
+                    inst.capped_loss += max(0, gain - room)
             result = orig["_daily_refresh_animals"](farm, day)
             after = sum(
                 1 for row in farm["tiles"] for t in row

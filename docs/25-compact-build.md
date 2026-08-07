@@ -82,16 +82,71 @@ This is the second time this has reproduced (the first was `shed_shared` in the 
 farm at 34 tiles is labour-*surplus*, which contradicts A3's founding conclusion that labour is the
 binding constraint. That holds for the sprawling build and not for this one.
 
+## Isolated: it was never production, it was price
+
+The milk shortfall is not a production or harvesting problem. Instrumented at the daily refresh,
+both builds produce **1.24 units per animal-day** and lose the same 7% to the `max_held` cap, with
+100% of production days fed. The compact build produces *more* in total — 647 against 564.
+
+The difference is entirely what the milk sells for:
+
+| | units sold | realised price | revenue |
+|---|---:|---:|---:|
+| current build | 255 | **$260.5** | 66,439 |
+| compact build | 274 | **$149.8** | 41,041 |
+
+Milk's base is 160. The current build sells into a pool the town has drained *below* `I0`, so every
+unit takes a scarcity premium. The compact build's larger herd pushes the same pool above `I0` and
+collects a glut discount instead. **Nineteen more units sold, 25,000 fewer coins.**
+
+## The pool split, and a correction to the sheep rejection
+
+If the constraint is pool absorption rather than production, the fix is to sell into two pools.
+Measured on the compact build at seed 0:
+
+| | money | milk | wool |
+|---|---:|---:|---:|
+| 15 cows | 47,656 | 274 @ $150 | — |
+| **9 cows + 6 sheep** | **71,340** | 120 @ **$281** | 132 @ $223 |
+| 7 cows + 8 sheep | 41,862 | 57 @ $317 | 177 @ **$88** |
+
+Splitting recovers 23,684. Over-splitting floods wool instead — its above-`I0` curve is `sq` with a
+3.20 target, the steepest in the game, so it collapses from $223 to $88 between 132 and 177 units.
+The optimum sits near sheep ≈ pastures ÷ 3, which is close to the field's own 8 cows and 6 sheep.
+
+**This corrects docs/15's sheep entry.** Rejecting sheep at −13,489 was right for the build it was
+tested on and wrong as a general claim. The sprawling build sells 255 milk at $260 — it never
+floods the pool, so there is nothing for a second pool to relieve, and sheep only cost more per
+animal. The value of an extra animal depends on which pool its output lands in.
+
+Direct evidence on the current build, seed 0: **18 pastures of cows scores 66,431; the same herd
+with 5 sheep scores 94,118.** Same animal count, opposite result.
+
+## Where it stands
+
+| build | seed-0 money |
+|---|---:|
+| current (shipped) | **90,984** |
+| compact, buy feed, 15 cows | 47,656 |
+| compact + 6 sheep | 71,340 |
+| compact + 4 sheep, 12 pastures | 75,097 |
+| compact + sheep, grow feed, land bought early | **82,369** |
+
+The compact architecture is still behind, and the pieces that helped it most were the ones that
+undid it — growing feed rather than buying it, and buying land on day 0. What survives is the pool
+split, which is an insight about the market rather than about the layout.
+
+Tested on the shipped build, the split measures **+577, CI [−1,787, +2,940], 8/20 — inconclusive**,
+because that build already sits in the scarcity regime. (`pasture_target` clamps to the labour
+budget above 14, so 17 and 18 are the same config; the two A/Bs returning identical statistics is
+that, not a bug.)
+
 ## Open, in priority order
 
-1. **Milk per animal-day is 0.51 against the current build's 0.72**, with the same 99% fed and 99%
-   cared and no starvation. Animal harvests run at one per 2.9 animal-days against 1.2. Workers are
-   idle at the same time, so it is not a labour shortage — the harvest tasks are not being taken.
-   Not yet isolated, and it is the single largest item: closing it is worth roughly 25,000.
-2. **The farm needs more to do.** With PASS at 19–34% the compact build should either work more
-   tiles (melon, animals) or hire fewer hands. `hire_to_demand` already cuts the crew to 6.
-3. **Sheep, revisited.** The top builds run 8 cows and 6 sheep. Sheep lost by 13,489 in the
-   sprawling build; the pool arithmetic may differ once milk is 65% of income and concentrated.
-4. **Late wheat.** Their wheat ramps 6 → 24 between day 20 and day 28, planted when melon can no
-   longer mature. We leave those tiles bare — `repurpose_melon` was rejected at −1,392 under the
-   old layout and deserves a retest here.
+1. **The compact opening is not paying for itself.** Every variant that improved it moved it back
+   toward the shipped build. Worth one more pass on melon count and crew size before calling it.
+2. **Late wheat.** Their wheat ramps 6 → 24 between day 20 and day 28, planted when melon can no
+   longer mature. We leave those tiles bare — `repurpose_melon` was rejected at −1,392 under the old
+   layout and deserves a retest.
+3. **Melon is also priced, not just produced.** It realises $244–254 against a 250 base, so it sits
+   near equilibrium; more melon tiles may run into the same glut wall that milk did.
