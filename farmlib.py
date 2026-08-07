@@ -222,6 +222,14 @@ class Config:
         # exists: allow several workers to fetch from the same unlocked shed tile
         # in one turn, which would keep the parallelism without the dead trips.
         self.shed_lock_aware = False
+        # The other half of that fix. Nothing in the interpreter limits a tile to
+        # one worker -- `_set_farmer_position` has no collision check, and
+        # PICKUP/DROP act on the worker's own inventory and the shared shed, not
+        # on the tile. So the one-worker-per-position rule in `assign` is ours,
+        # not the game's, and for shed tiles it costs the parallelism that made
+        # `shed_lock_aware` measure negative on its own. These two only make
+        # sense together: filtering without sharing is what scored -2,153.
+        self.shed_shared = False
         # Once melon can no longer mature, replant its tiles with something that
         # can, rather than leaving them bare for the last stretch of the season.
         # REJECTED: -1,392 (3/16). The farm is labour-bound, not land-bound, so
@@ -274,7 +282,10 @@ def usable_shed_tiles(farm, cfg=None):
     were walking to dead drop points and back.
     """
     size = len(farm["tiles"])
-    if cfg is not None and not getattr(cfg, "shed_lock_aware", True):
+    # `shed_shared` implies this filter: sharing a locked tile would just put
+    # more workers on a dead drop point.
+    if cfg is not None and not (getattr(cfg, "shed_lock_aware", True)
+                                or getattr(cfg, "shed_shared", False)):
         return shed_tiles(size)
     unlocked = set(farm.get("unlocked_quadrants") or [])
     return {
@@ -721,7 +732,7 @@ PREEMPT_ABOVE = 90
 def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
            cfg_feed_carry=6, travel_weight=5.0, commitments=None, finish_tile=True,
            carried_fert=None, fert_carry=3, carried_melon_each=None,
-           carried_each_total=None):
+           carried_each_total=None, shared=None):
     """Greedy: highest-priority task goes to whichever free worker is nearest.
 
     Also rations the scarce things a task can consume -- seeds, carried wheat,
@@ -731,6 +742,12 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     """
     actions = [None] * len(units)
     taken = set()
+    # Positions several workers may act on in the same turn. Only shed tiles
+    # qualify: a fetch there consumes nothing another worker needed.
+    shared = set(shared) if shared else set()
+
+    def blocked(pos):
+        return pos in taken and pos not in shared
     seeds = dict(seeds)
     wheat = list(carried_wheat)
     fert = list(carried_fert) if carried_fert else [0] * len(units)
@@ -787,7 +804,8 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
                 return None
             in_shed[animal] -= 1
 
-        taken.add(pos)
+        if pos not in shared:
+            taken.add(pos)
         ux, uy = units[worker]
         move = step_toward(ux, uy, *pos)
         if move:
@@ -838,7 +856,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
     # work of similar value.
     if finish_tile:
         for worker, upos in enumerate(units):
-            if actions[worker] is not None or upos in taken:
+            if actions[worker] is not None or blocked(upos):
                 continue
             entry = task_map.get(upos)
             if entry and feasible(worker, entry[2]):
@@ -851,7 +869,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
         key=lambda t: -(t[0] - travel_weight * nearest_free(t[1])),
     )
     for _prio, pos, op, need in urgent:
-        if pos in taken:
+        if blocked(pos):
             continue
         best, best_d = None, None
         for i, upos in enumerate(units):
@@ -872,7 +890,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
         if pos is None:
             continue
         entry = task_map.get(pos)
-        if entry is None or pos in taken or not feasible(worker, entry[2]):
+        if entry is None or blocked(pos) or not feasible(worker, entry[2]):
             commitments.pop(worker, None)      # task is gone or now impossible
             continue
         commit(worker, pos, entry[1], entry[2])
@@ -887,7 +905,7 @@ def assign(units, tasks, carried_wheat, carried_animals, seeds, shed_animals,
         upos = units[worker]
         best, best_score = None, None
         for prio, pos, op, need in tasks:
-            if pos in taken or not feasible(worker, need):
+            if blocked(pos) or not feasible(worker, need):
                 continue
             score = prio - travel_weight * distance(upos, pos)
             if best_score is None or score > best_score:
@@ -1138,6 +1156,7 @@ def make_agent(cfg=None):
             cfg.finish_tile, carried_fert, cfg.fert_carry, melon_each,
             [sum(v for k, v in inv.items() if k not in ANIMAL_INFO)
              for inv in inventories],
+            usable_shed_tiles(farm, cfg) if cfg.shed_shared else None,
         )
 
         return {

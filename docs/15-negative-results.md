@@ -63,3 +63,22 @@ This is the clearest calibration point yet on how much offline margins are worth
 +11,673 paired self-play gain has so far produced **no measurable ladder separation**. Self-play
 is our own agent on both sides, so it rewards changes that beat *ourselves*, which is not the
 same as beating the field. Worth holding in mind before treating any offline number as banked.
+
+## Shed tile sharing — −15,299 (0/20)
+
+Workers waste 466 PICKUP actions per episode standing on LOCKED shed tiles, 59% of all pickups.
+`shed_lock_aware` filtered those tiles and measured −2,153; I blamed the lost parallelism and
+proposed sharing an unlocked tile between several workers, which nothing in the interpreter
+forbids. Implemented as `shed_shared`, it cut PICKUP no-ops from 58% to 12% and raised real
+pickups, harvests and waterings — and measured **−15,299, CI [−19,752, −10,845], 0/20**.
+
+Two explanations checked and both refuted: the action mix improves rather than degrades, and the
+fetch loop is not starving either animal type. Herd mix shifts from 11 cows/4 geese to 8 cows/7
+geese, which accounts for the size of the loss but not the cause. Left off. See
+docs/21-mechanic-audit.md.
+
+## Raising `pasture_target` to 10 — inconclusive, and inert
+
+Cow count correlates +0.44 with final money, so the herd looked worth pushing. `pasture_target=10`
+measured 7/16 with a per-seed stdev of 978 — inside ±700 of zero. `plan_layout` caps pastures at
+`remaining // per_pasture` and the labour budget binds far below 10, so the knob does nothing.
