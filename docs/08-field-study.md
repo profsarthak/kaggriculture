@@ -15,7 +15,7 @@ Standing after 9 scored episodes: win rate 3/9, us averaging 23,757 against a fi
 
 ## What the strongest opponent does
 
-`PromptEngineer48` beat us 79,254 to 17,421.
+The strongest opponent in that sample beat us 79,254 to 17,421.
 
 | day | money | hands | quadrants | animals | crops |
 |---:|---:|---:|---:|---:|---|

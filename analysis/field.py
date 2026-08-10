@@ -28,7 +28,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 REPLAYS = os.path.join(ROOT, "data", "replays")
 CACHE = os.path.join(ROOT, "data", "field-trajectories.json")
-ME = "Sarthak Vedant Mohanty"
+# Whose seat to read in a replay. Override to reuse this on another
+# account: KAGGLE_TEAM_NAME="Your Team" python -m analysis.field
+ME = os.environ.get("KAGGLE_TEAM_NAME", "Sarthak Vedant Mohanty")
 
 FIELDS = ("money", "animals", "cows", "sheep", "geese", "structures",
           "quadrants", "melon", "wheat")

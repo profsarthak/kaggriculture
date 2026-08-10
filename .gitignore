@@ -11,3 +11,6 @@ data/replays/
 data/ladder-runs.log
 probe.tar.gz
 data/scout-notes/
+
+# One-shot operational scripts carry local absolute paths.
+submit_*.cmd

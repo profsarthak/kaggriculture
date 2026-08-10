@@ -62,7 +62,7 @@ robustness across strategies, but it cannot construct an opponent that plays **b
 best configuration** — any such opponent would, by definition, be a config we should adopt.
 
 That matters because the field is currently better than us: across the v4/v5 episodes we
-average 38,322 against the field's 50,411. The strongest opponent seen, `PromptEngineer48`,
+average 38,322 against the field's 50,411. The strongest opponent seen
 scored 79,254 with 29 melon tiles and 19 animals — a build our engine cannot service
 (`docs/08-field-study.md`), so parameterising a panel member that way produces a weak opponent
 rather than a strong one.
