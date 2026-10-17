@@ -1,6 +1,8 @@
 # What this project is, in plain English
 
-Draft for the public README. Written for someone who has never seen the competition.
+The long-form companion to the README, written for someone who has never seen the competition.
+The README is the short version; this walks through the reasoning, in order, including the
+parts that turned out to be wrong.
 
 ## The game
 
@@ -293,18 +295,28 @@ opponent we faced actually does; using our free fertiliser on crops; giving each
 own territory; pacing sales to avoid crashing prices; putting the animals nearest the barn;
 adapting our melon planting to the opponent's; taking deliberate risks when losing.
 
-Eight structural ideas, all measured, all rejected. That is not wasted effort — each one is
-now a documented dead end that nobody needs to try again, and several taught us something about
-why the game works the way it does.
+By the end that list ran to thirteen structural ideas, all measured, all rejected, against three
+adopted. That is not wasted effort — each one is now a documented dead end that nobody needs to
+try again, and several taught us something about why the game works the way it does.
 
-## Where it stands
+## How it finished
 
-The agent scores roughly 75,000 against the practice opponent and holds a positive record on the
-live leaderboard. Against real competitors we average about 87% of their scores — genuinely
-competitive, not yet leading.
+The agent was frozen on 11 August and the competition closed on 30 September, with standing decided
+by a tournament over episodes played 1–15 October. **It finished 7,097th of 10,148**, scoring 509.8
+against a field median of 831.9. Tenth place — the last of the prize positions — scored 2,931.9.
 
-Parameter tuning is exhausted: an automated search that walks every setting up and down finds
-nothing left to improve. The remaining gap looks like execution capacity rather than strategy.
+At the freeze it had been almost exactly the median team. It finished below the median, for two
+reasons worth separating. The field nearly tripled over the final seven weeks while the agent stood
+still, so standing still was itself a decline. And the final rating was earned fresh over a
+two-week tournament rather than carried over, so none of the earlier accumulated record counted.
+
+One conclusion from the paragraph this section replaces turned out to be wrong, and it is worth
+leaving the correction visible. I thought the remaining gap was execution capacity — that the
+strong agents simply got more done per turn. Reading their actual move-by-move play out of the
+replays showed the opposite: they move *more* than I do, get *fewer* useful actions per visit, and
+are worse on every efficiency measure I had been optimising. Their advantage was a bigger workforce
+servicing a farm that generated enough work to justify it, which my farm did not. The gap was never
+execution.
 
 ## What a non-specialist should take from this
 
@@ -316,3 +328,10 @@ nothing left to improve. The remaining gap looks like execution capacity rather 
 4. **Write down what didn't work, and why.** Half of this repository is negative results, and
    they are the part most likely to save someone time.
 5. **Expect your conclusions to expire.** They were answers about a system, and the system moved.
+6. **A small effect that appears is usually not there.** Four separate changes read clearly
+   positive at twenty games and converged to nothing at forty-eight. The first measurement
+   flatters, reliably.
+7. **Your test can be structurally blind.** I triaged ideas by playing the agent against a copy of
+   itself, which cannot see a shared-resource conflict at all — it only ever samples the case where
+   both sides make the same choice. Two of the best-looking ideas of the project died on that, and
+   the test had been recommending the worse option both times.
