@@ -186,5 +186,6 @@ python -m analysis.audit         # do the game's rules behave as documented?
 
 ## Licence
 
-Code and documentation are released under [CC BY 4.0](LICENSE). Replay data is not included —
+Code and documentation are released under [CC BY 4.0](LICENSE); [NOTICE.md](NOTICE.md) has
+the copyright line and what the licence does not cover. Replay data is not included —
 it contains other competitors' play, and the cached analysis in `data/` is anonymised.
