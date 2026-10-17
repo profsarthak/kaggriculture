@@ -8,9 +8,11 @@ This repository is the whole record — the agent, the instruments built to meas
 twenty-nine documents covering what worked, what didn't, and the several occasions I measured
 something wrong and had to take it back.
 
-> **Status:** frozen. Standing as of 11 August 2026: **rank 2075 of 3687**, rating 643.8, win rate
-> **198/405 (49%)**. The competition closes 30 September 2026 and this repository stays private
-> until then — the rules permit sharing code only if it is made available to every participant.
+> **Status:** finished. Submissions closed on 30 September 2026 and the final ratings settled on
+> 14 October. Final standing: **rank 7,184 of 10,148**, leaderboard score 2,902.1. The agent was
+> frozen on 11 August, when it stood at rank 2075 of 3687 (rating 643.8) with a win rate of
+> **198/405 (49%)**. The repository was kept private until the competition closed — the rules
+> permit sharing code only if it is made available to every participant.
 
 ---
 
@@ -69,7 +71,8 @@ Around that sits the part I did not expect to spend most of my time on: **instru
 
 ## What I actually learned
 
-The agent is mid-table. The findings are the interesting part, and most of them are negative.
+The agent was mid-table when I froze it, and finished 7,184th of 10,148. The findings are the
+interesting part, and most of them are negative.
 
 ### Measuring is harder than building
 
@@ -140,10 +143,11 @@ silent failure living inside a check for silent failures.
 - **Retracted:** several claims I made confidently and later disproved with my own data — a noise
   model that grew when it should have shrunk, an explanation for a regression that my follow-up
   refuted, and a "strictly dominates" that rested on eight games.
-- **Not reached:** top ten needs a rating around 3,080. I am at 643. That is not close, and no
+- **Not reached:** at the freeze, the top ten needed a rating around 3,080 and I was at 643; on
+  the final leaderboard, tenth place scored 5,334.0 to my 2,902.1. That is not close, and no
   amount of the tuning I was doing would have closed it.
 
-The competition awards $5,000 each to the top ten. I am not going to be one of them. What the
+The competition awards $5,000 each to the top ten. I wasn't one of them. What the
 project produced instead is a way of working: build the instrument before trusting the number,
 write down the failures, and check whether the thing you just "fixed" actually changed anything.
 
